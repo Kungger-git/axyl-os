@@ -94,10 +94,9 @@ noto-fonts
 noto-fonts-emoji
 ttf-liberation
 
-arc-gtk-theme
+gnome-themes-extra
 papirus-icon-theme
 lxappearance
-gtk-engine-murrine
 adwaita-icon-theme
 
 btop

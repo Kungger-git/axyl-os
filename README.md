@@ -95,7 +95,7 @@ qemu-system-x86_64 -cdrom /tmp/axyl-out/*.iso -m 2G \
 - **Audio**: PulseAudio with pamixer (hotkeys) and pavucontrol (GUI)
 - **Compositor**: picom (xrender backend, universally compatible; see picom.conf to enable glx + dual_kawase)
 - **Notifications**: dunst themed to Claude palette
-- **GTK theme**: Arc-Dark + Papirus-Dark icons
+- **GTK theme**: Adwaita-dark + Papirus-Dark icons
 
 ---
 
