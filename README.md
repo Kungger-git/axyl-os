@@ -28,6 +28,19 @@ sudo pacman -S archiso mkinitcpio dosfstools e2fsprogs libisoburn squashfs-tools
 
 ## How to Build
 
+### Step 1 — Install build dependencies
+
+Run once on a fresh Arch Linux build host:
+
+```bash
+chmod +x setup.sh
+sudo ./setup.sh
+```
+
+Installs: `archiso`, `mkinitcpio`, `dosfstools`, `e2fsprogs`, `libisoburn`, `squashfs-tools`, `grub`, `git`. Optionally installs QEMU + OVMF for ISO testing (prompted).
+
+### Step 2 — Build the ISO
+
 A single script handles AUR setup and the ISO build:
 
 ```bash
