@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Run as root: sudo axyl-setup" >&2
+    exit 1
+fi
+
+REALUSER="${SUDO_USER:-}"
+if [[ -z "$REALUSER" ]]; then
+    echo "Cannot determine target user. Run with sudo, not directly as root." >&2
+    exit 1
+fi
+
+echo "==> Axyl post-install setup"
+
+# Update XDG user directories
+echo "  -> Updating XDG user directories..."
+sudo -u "$REALUSER" xdg-user-dirs-update
+
+# Enable ly display manager
+echo "  -> Enabling ly.service..."
+if systemctl list-unit-files ly.service &>/dev/null; then
+    systemctl enable ly.service
+else
+    echo "  Note: ly not installed. Run 'systemctl enable ly.service' after installing it."
+fi
+
+echo ""
+echo "Setup complete. Reboot to start your Axyl desktop."
+echo "paru is available for AUR packages."

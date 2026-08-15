@@ -6,8 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROFILE_DIR="$SCRIPT_DIR/archiso"
 AUR_CACHE="$PROFILE_DIR/airootfs/root/aur-cache"
-WORK_DIR="/var/tmp/axyl-work"
-OUT_DIR="/var/tmp/axyl-out"
+WORK_DIR="$SCRIPT_DIR/axyl-work"
+OUT_DIR="$SCRIPT_DIR/axyl-out"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 ACCENT='\e[38;2;217;119;87m'
@@ -62,14 +62,11 @@ fi
 ok "brave-bin ready"
 echo ""
 
-# ── Clean previous work directory ────────────────────────────────────────────
-if [[ -d "$WORK_DIR" ]]; then
-    info "Removing previous work directory..."
-    rm -rf "$WORK_DIR"
-    ok "Work directory cleared"
-fi
-
+# ── Clean build directories ───────────────────────────────────────────────────
+info "Cleaning build directories..."
+rm -rf "$WORK_DIR" "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+ok "Build directories ready"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 info "Building Axyl ISO..."
