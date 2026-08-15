@@ -38,6 +38,8 @@ chown root:root /etc/sudoers.d/axyl
 sudo -u axyl xdg-user-dirs-update
 
 # ── AUR: paru-bin + brave-bin (from pre-downloaded tarballs) ─────────────────
+# pacman's CheckSpace fails on overlayfs (archiso chroot) — disable it
+sed -i 's/^CheckSpace/#CheckSpace/' /etc/pacman.conf
 # Tarballs must be placed at archiso/airootfs/root/aur-cache/ before running
 # mkarchiso. See README for the pre-build download step.
 if [[ -d /root/aur-cache/paru-bin ]]; then
