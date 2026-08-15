@@ -79,6 +79,8 @@ dhcpcd
 wpa_supplicant
 iwd
 openssh
+iptables
+jack2
 
 git
 curl

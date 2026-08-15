@@ -69,7 +69,7 @@ case "$choice" in
         echo -e "${MUTED}Opening shell. Type 'exit' to return to the desktop.${RESET}"
         echo -e "${MUTED}Default credentials: user=axyl  password=axyl${RESET}"
         echo ""
-        exec bash
+        bash
         ;;
     3)
         ;;
@@ -81,4 +81,4 @@ case "$choice" in
 esac
 
 # Mark done so bspwmrc does not re-open this terminal on reload
-touch /var/run/axyl-install-done 2>/dev/null || true
+touch "$HOME/.axyl-install-done" 2>/dev/null || true
