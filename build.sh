@@ -6,8 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROFILE_DIR="$SCRIPT_DIR/archiso"
 AUR_CACHE="$PROFILE_DIR/airootfs/root/aur-cache"
-WORK_DIR="/tmp/axyl-work"
-OUT_DIR="/tmp/axyl-out"
+WORK_DIR="/var/tmp/axyl-work"
+OUT_DIR="/var/tmp/axyl-out"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 ACCENT='\e[38;2;217;119;87m'
