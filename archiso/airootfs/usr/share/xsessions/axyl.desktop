@@ -1,7 +1,0 @@
-[Desktop Entry]
-Name=axyl
-Comment=Axyl Linux — bspwm session
-Exec=/usr/local/bin/start-bspwm-session
-TryExec=/usr/bin/bspwm
-Type=Application
-DesktopNames=axyl
