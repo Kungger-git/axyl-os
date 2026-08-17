@@ -22,10 +22,28 @@ EOF
 systemctl enable NetworkManager.service
 systemctl enable greetd.service
 systemctl enable acpid.service
+systemctl enable bluetooth.service
 systemctl set-default graphical.target
 
+# ── Executable bits (file_permissions handles mkarchiso; this is the safety net) ──
+chmod +x \
+    /usr/local/bin/start-bspwm-session \
+    /usr/local/bin/axyl-install \
+    /usr/local/bin/axyl-setup \
+    /usr/local/bin/axyl-powermenu \
+    /usr/local/bin/axyl-lock \
+    /usr/local/bin/axyl-osd-volume \
+    /usr/local/bin/axyl-osd-brightness
+
+# ── Oh My Zsh (cloned into skel so useradd -m copies it to /home/axyl/) ──────
+git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git /etc/skel/.oh-my-zsh
+git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git \
+    /etc/skel/.oh-my-zsh/custom/plugins/zsh-autosuggestions
+git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git \
+    /etc/skel/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting
+
 # ── Live user ────────────────────────────────────────────────────────────────
-useradd -m -G wheel,audio,video,input,storage,optical,network -s /bin/bash axyl
+useradd -m -G wheel,audio,video,input,storage,optical,network -s /bin/zsh axyl
 echo "axyl:axyl" | chpasswd
 echo "root:toor"  | chpasswd
 
@@ -36,35 +54,5 @@ chown root:root /etc/sudoers.d/axyl
 
 sudo -Hu axyl xdg-user-dirs-update
 
-# Generate solid-colour wallpaper matching the Claude background
-mkdir -p /etc/skel/.config/bspwm
-magick -size 1920x1080 xc:'#1a1a2e' /etc/skel/.config/bspwm/wallpaper.png
-
-# ── AUR: paru-bin + brave-bin (from pre-downloaded tarballs) ─────────────────
-# pacman's CheckSpace fails on overlayfs (archiso chroot) — disable it
-sed -i 's/^CheckSpace/#CheckSpace/' /etc/pacman.conf
-# Tarballs must be placed at archiso/airootfs/root/aur-cache/ before running
-# mkarchiso. See README for the pre-build download step.
-if [[ -d /root/aur-cache/paru-bin ]]; then
-    useradd -m -r aur_builder
-    echo "aur_builder ALL=(ALL) NOPASSWD: /usr/bin/pacman" > /etc/sudoers.d/aur_builder
-    chmod 0440 /etc/sudoers.d/aur_builder
-    chown root:root /etc/sudoers.d/aur_builder
-
-    chown -R aur_builder:aur_builder /root/aur-cache
-
-    cd /root/aur-cache/paru-bin
-    sudo -u aur_builder makepkg -si --noconfirm --skippgpcheck
-
-    if [[ -d /root/aur-cache/brave-bin ]]; then
-        cd /root/aur-cache/brave-bin
-        sudo -u aur_builder makepkg -si --noconfirm --skippgpcheck
-    fi
-
-    userdel -r aur_builder
-    rm -f /etc/sudoers.d/aur_builder
-fi
-
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 paccache -r -k0 || true
-rm -rf /root/aur-cache

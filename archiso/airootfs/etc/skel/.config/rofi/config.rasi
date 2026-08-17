@@ -1,0 +1,100 @@
+configuration {
+    modi:                "drun,run,window";
+    show-icons:          true;
+    icon-theme:          "Papirus-Dark";
+    drun-display-format: "{name}";
+    location:            0;
+    disable-history:     false;
+    hide-scrollbar:      true;
+    display-drun:        "Apps";
+    display-run:         "Run";
+    display-window:      "Windows";
+    sidebar-mode:        false;
+}
+
+* {
+    font:        "JetBrains Mono 11";
+    bg:          #1a1a2e;
+    bg-alt:      #16213e;
+    fg:          #e6e1d8;
+    fg-dim:      #6e7290;
+    accent:      #d97757;
+    accent-alt:  #e8927c;
+    urgent:      #ff5555;
+
+    background-color: transparent;
+    text-color:       @fg;
+}
+
+window {
+    background-color: @bg;
+    border:           1px solid;
+    border-color:     @accent;
+    border-radius:    8px;
+    width:            40%;
+    padding:          0;
+}
+
+mainbox {
+    background-color: transparent;
+    children:         [ inputbar, listview ];
+    spacing:          0;
+}
+
+inputbar {
+    background-color: @bg-alt;
+    border-radius:    8px 8px 0 0;
+    border:           0 0 1px 0 solid;
+    border-color:     @accent;
+    padding:          11px 16px;
+    spacing:          8px;
+    children:         [ prompt, entry ];
+}
+
+prompt {
+    text-color: @accent;
+    font:       "JetBrains Mono Bold 11";
+    padding:    0 6px 0 0;
+}
+
+entry {
+    text-color:        @fg;
+    cursor-color:      @accent;
+    placeholder:       "search...";
+    placeholder-color: @fg-dim;
+}
+
+listview {
+    background-color: transparent;
+    lines:            9;
+    columns:          1;
+    scrollbar:        false;
+    spacing:          2px;
+    padding:          8px;
+    fixed-height:     true;
+}
+
+element {
+    background-color: transparent;
+    text-color:       @fg;
+    border-radius:    4px;
+    padding:          7px 10px;
+    spacing:          10px;
+    children:         [ element-icon, element-text ];
+}
+
+element normal.normal    { background-color: transparent; text-color: @fg;     }
+element normal.urgent    { background-color: transparent; text-color: @urgent; }
+element alternate.normal { background-color: transparent; text-color: @fg;     }
+element selected.normal  { background-color: @accent;     text-color: @bg;     }
+element selected.urgent  { background-color: @urgent;     text-color: @bg;     }
+
+element-icon {
+    size:           1.2em;
+    vertical-align: 0.5;
+}
+
+element-text {
+    vertical-align: 0.5;
+    text-color:     inherit;
+}

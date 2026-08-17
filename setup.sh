@@ -32,8 +32,8 @@ BUILD_DEPS=(
     e2fsprogs        # mkfs.ext2 — filesystem tools
     libisoburn       # xorriso — ISO 9660 writer
     squashfs-tools   # mksquashfs — live filesystem compression
-    grub             # grub-mkstandalone — UEFI EFI image (build-host dep)
-    git              # AUR tarball cloning in build.sh
+    syslinux         # BIOS bootloader (bios.syslinux bootmode)
+    git              # Oh My Zsh clone in customize_airootfs.sh
 )
 
 # ── Optional: QEMU testing ───────────────────────────────────────────────────
@@ -91,7 +91,7 @@ echo ""
 
 # ── Verify key binaries ───────────────────────────────────────────────────────
 info "Verifying installed tools..."
-TOOLS=(mkarchiso mkinitcpio mkfs.fat mkfs.ext2 xorriso mksquashfs grub-mkstandalone git)
+TOOLS=(mkarchiso mkinitcpio mkfs.fat mkfs.ext2 xorriso mksquashfs syslinux git)
 ALL_OK=true
 for tool in "${TOOLS[@]}"; do
     if command -v "$tool" &>/dev/null; then

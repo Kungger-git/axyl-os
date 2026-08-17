@@ -98,17 +98,6 @@ if [[ -n "$TARGET_BYTES" ]] && (( TARGET_BYTES > 0 && TARGET_BYTES < ISO_BYTES )
     err "Drive too small. ISO is $ISO_SIZE, drive is $TARGET_SIZE."
 fi
 
-# ── Confirm ───────────────────────────────────────────────────────────────────
-echo ""
-echo -e "  Selected : ${BOLD}$TARGET_DEV${RESET} ($TARGET_SIZE)"
-echo -e "  ISO      : $ISO_NAME ($ISO_SIZE)"
-echo ""
-warn "ALL DATA ON $TARGET_DEV WILL BE PERMANENTLY ERASED."
-echo ""
-echo -ne "${RED}Type the device path to confirm ($TARGET_DEV): ${RESET}"
-read -r confirm
-[[ "$confirm" != "$TARGET_DEV" ]] && err "Confirmation mismatch. Aborting."
-
 # ── Unmount all partitions ────────────────────────────────────────────────────
 echo ""
 info "Unmounting $TARGET_DEV..."

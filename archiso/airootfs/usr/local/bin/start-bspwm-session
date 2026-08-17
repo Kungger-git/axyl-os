@@ -4,4 +4,5 @@ xset s off
 xset -dpms
 xsetroot -cursor_name left_ptr
 [[ -f ~/.Xresources ]] && xrdb -merge ~/.Xresources
+chmod +x "${HOME}/.config/bspwm/bspwmrc" 2>/dev/null || true
 exec dbus-run-session /usr/bin/bspwm

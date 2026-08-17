@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+i3lock \
+    --color=1a1a2e \
+    --show-failed-attempts \
+    --nofork

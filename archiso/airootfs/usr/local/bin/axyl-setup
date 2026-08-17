@@ -28,4 +28,3 @@ fi
 
 echo ""
 echo "Setup complete. Reboot to start your Axyl desktop."
-echo "paru is available for AUR packages."

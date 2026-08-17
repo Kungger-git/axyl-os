@@ -23,10 +23,6 @@ BANNER
 echo -e "${MUTED}         Arch Linux, Configured.${RESET}"
 echo ""
 
-# System info
-fastfetch 2>/dev/null || true
-echo ""
-
 # Wait for network
 echo -e "${MUTED}Waiting for network...${RESET}"
 timeout=30

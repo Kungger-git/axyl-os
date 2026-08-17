@@ -84,17 +84,25 @@ qemu-system-x86_64 -cdrom /tmp/axyl-out/*.iso -m 2G \
 
 - **Window manager**: bspwm with 9 workspaces, 2px borders, 8px gaps
 - **Color scheme**: Claude palette — `#1a1a2e` background, `#d97757` accent, `#e6e1d8` foreground
-- **Login manager**: ly with doom animation, auto-login as `axyl`
-- **Bar**: polybar — workspaces, window title, CPU, memory, volume, network, clock
+- **Login manager**: greetd with X11 autologin as `axyl`
+- **Bar**: polybar — workspaces, window title, now-playing (playerctl), CPU, memory, volume, network, clock
 - **App launcher**: rofi (drun/run/window modes)
 - **Terminal**: kitty with JetBrains Mono 12pt and full Claude 16-color palette
-- **Browser**: Brave (built from AUR during ISO creation; `paru` available for further AUR packages)
+- **Shell**: zsh + Oh My Zsh (zsh-autosuggestions, zsh-syntax-highlighting)
+- **Browser**: Firefox
 - **Editor**: neovim with custom Claude color scheme (pure lua, no plugins)
 - **File manager**: thunar with gvfs and archive support
-- **Media**: mpv
-- **Audio**: PulseAudio with pamixer (hotkeys) and pavucontrol (GUI)
+- **PDF viewer**: zathura with mupdf backend, themed to Claude palette
+- **Image viewer**: nsxiv
+- **Media**: mpv + playerctl (media key support)
+- **Audio**: PulseAudio with pamixer (hotkeys + OSD notifications) and pavucontrol (GUI)
+- **Bluetooth**: bluez + blueman (systray applet, auto-starts)
 - **Compositor**: picom (xrender backend, universally compatible; see picom.conf to enable glx + dual_kawase)
-- **Notifications**: dunst themed to Claude palette
+- **Notifications**: dunst themed to Claude palette (volume/brightness progress bar OSD)
+- **Screen locker**: i3lock (navy `#1a1a2e` background); auto-locks before suspend via xss-lock
+- **Clipboard manager**: copyq (persistent history, accessible via `Super+Shift+V`)
+- **Auto-mount**: udiskie (systray icon, auto-mounts removable media)
+- **Blue light filter**: redshift-gtk (London defaults; edit `~/.config/redshift/redshift.conf`)
 - **GTK theme**: Adwaita-dark + Papirus-Dark icons
 
 ---
@@ -120,15 +128,18 @@ All bindings use the **Super** key (Windows/Cmd key).
 | `Super + {1–9}` | Switch to workspace |
 | `Super + Shift + {1–9}` | Move window to workspace |
 | `Super + Ctrl + {H,J,K,L}` | Resize window |
+| `Super + Shift + E` | Power menu (logout/reboot/shutdown/sleep) |
+| `Super + L` | Lock screen |
+| `Super + Shift + V` | Clipboard history (copyq) |
 | `Super + Shift + R` | Restart bspwm |
 | `Super + Alt + Escape` | Quit bspwm |
 | `Super + Escape` | Reload sxhkd config |
 | `Print` | Screenshot (region — flameshot) |
 | `Super + Print` | Screenshot (full screen) |
-| `XF86AudioRaiseVolume` | Volume +5% |
-| `XF86AudioLowerVolume` | Volume -5% |
-| `XF86AudioMute` | Toggle mute |
-| `XF86MonBrightnessUp/Down` | Brightness ±10% |
+| `XF86AudioRaiseVolume` | Volume +5% (with OSD) |
+| `XF86AudioLowerVolume` | Volume -5% (with OSD) |
+| `XF86AudioMute` | Toggle mute (with OSD) |
+| `XF86MonBrightnessUp/Down` | Brightness ±10% (with OSD) |
 | `XF86AudioPlay/Next/Prev` | Media playback |
 
 ---
@@ -154,4 +165,5 @@ After installing Axyl to disk with `archinstall`:
 
 ## Changelog
 
-- **2026-08-15** — Initial release: bspwm + ly + polybar + rofi + kitty + brave + neovim + Claude color scheme
+- **2026-08-17** — Added screen locker (i3lock + xss-lock), clipboard manager (copyq), volume/brightness OSD (dunstify), bluetooth (bluez + blueman), PDF viewer (zathura), image viewer (nsxiv), auto-mount (udiskie), blue light filter (redshift), GTK theme (Arc-Dark + Papirus-Dark), now-playing polybar module (playerctl); powermenu locks before sleep; switched to greetd; added zsh + Oh My Zsh
+- **2026-08-15** — Initial release: bspwm + polybar + rofi + kitty + firefox + neovim + Claude color scheme

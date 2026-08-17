@@ -1,0 +1,101 @@
+# ── Applications ─────────────────────────────────────────────────────────────
+super + Return
+    kitty
+
+super + space
+    rofi -show drun
+
+super + e
+    kitty -e lf
+
+super + b
+    qutebrowser
+
+# ── Screenshots ───────────────────────────────────────────────────────────────
+Print
+    flameshot gui
+
+super + Print
+    flameshot screen -c
+
+# ── Power menu ────────────────────────────────────────────────────────────────
+super + shift + e
+    /usr/local/bin/axyl-powermenu
+
+# ── Lock screen ───────────────────────────────────────────────────────────────
+super + l
+    axyl-lock
+
+# ── Window management ─────────────────────────────────────────────────────────
+super + shift + q
+    bspc node -c
+
+super + shift + k
+    bspc node -k
+
+super + Escape
+    pkill -USR1 -x sxhkd
+
+super + shift + r
+    bspc wm -r
+
+super + alt + Escape
+    bspc quit
+
+# ── Focus / move (vim keys) ───────────────────────────────────────────────────
+super + {h,j,k,l}
+    bspc node -f {west,south,north,east}
+
+super + shift + {h,j,k,l}
+    bspc node -s {west,south,north,east}
+
+# ── State / layout ────────────────────────────────────────────────────────────
+super + f
+    bspc node -t ~fullscreen
+
+super + shift + space
+    bspc node -t ~floating
+
+super + m
+    bspc desktop -l next
+
+super + r
+    bspc node @/ -R 90
+
+# ── Workspaces ────────────────────────────────────────────────────────────────
+super + {1-9}
+    bspc desktop -f '^{1-9}'
+
+super + shift + {1-9}
+    bspc node -d '^{1-9}'
+
+# ── Resize ────────────────────────────────────────────────────────────────────
+super + ctrl + {h,j,k,l}
+    bspc node -z {left -40 0,bottom 0 40,top 0 -40,right 40 0}
+
+# ── Audio ─────────────────────────────────────────────────────────────────────
+XF86AudioRaiseVolume
+    axyl-osd-volume up
+
+XF86AudioLowerVolume
+    axyl-osd-volume down
+
+XF86AudioMute
+    axyl-osd-volume mute
+
+# ── Brightness ────────────────────────────────────────────────────────────────
+XF86MonBrightnessUp
+    axyl-osd-brightness up
+
+XF86MonBrightnessDown
+    axyl-osd-brightness down
+
+# ── Media ─────────────────────────────────────────────────────────────────────
+XF86AudioPlay
+    playerctl play-pause
+
+XF86AudioNext
+    playerctl next
+
+XF86AudioPrev
+    playerctl previous

@@ -1,15 +1,408 @@
-# CLAUDE.md — Arch Linux ISO Development (bspwm dotfiles)
+# CLAUDE.md — Axyl Linux ISO (bspwm / Arch)
 
-This file guides Claude through working in this repository. Follow every rule here precisely and consistently across all sessions.
+This file is the authoritative reference for all future Claude sessions in this repository. Follow every rule here precisely and consistently.
 
 ---
 
 ## Project Overview
 
-This repository contains:
-- Custom Arch Linux ISO build configuration (based on `archiso`)
-- bspwm window manager dotfiles and system configuration
-- Package lists, hooks, and overlays to produce a bootable, opinionated Arch ISO
+**Axyl Linux** is a custom Arch Linux live ISO built with `archiso`. It boots directly into a fully configured bspwm desktop with a dark navy/coral "Claude" color scheme, greetd autologin, Oh My Zsh, polybar, and an interactive installer terminal. The ISO supports both BIOS (syslinux) and UEFI (systemd-boot) boot.
+
+**Editing environment:** Windows (VS Code / OneDrive). **Build environment:** separate Arch Linux machine. Files are edited on Windows and the ISO is built on Arch Linux with `mkarchiso`.
+
+---
+
+## Repository Layout
+
+```
+archiso/
+  profiledef.sh                      ← ISO metadata, bootmodes, compression, file_permissions
+  packages.x86_64                    ← every package installed in the live system
+  pacman.conf                        ← mirrors and repos used during the archiso build
+  airootfs/                          ← overlay: copied verbatim into the live rootfs
+    etc/
+      greetd/config.toml             ← display manager config (autologin via [initial_session])
+      mkinitcpio.conf                ← live initramfs config (overrides any drop-in)
+      mkinitcpio.conf.d/archiso.conf ← comment-only drop-in (harmless)
+      skel/                          ← copied to /home/axyl/ by useradd -m
+        .bash_profile                ← sources .bashrc (POSIX [ ] only, no [[ ]])
+        .bashrc                      ← bash aliases/exports (POSIX case, no [[ ]])
+        .zshrc                       ← Oh My Zsh config, sourced by zsh login shell
+        .xinitrc                     ← manual startx fallback (not used by greetd)
+        .gtkrc-2.0                   ← GTK2 theme (Arc-Dark + Papirus-Dark)
+        .config/
+          bspwm/bspwmrc              ← WM config + full autostart (must be executable)
+          bspwm/wallpaper.jpg        ← desktop wallpaper (feh --bg-fill)
+          sxhkd/sxhkdrc              ← all keybindings
+          polybar/config.ini         ← bar config (Font Awesome icons as raw UTF-8 bytes)
+          polybar/launch.sh          ← kills old instance, starts polybar axyl
+          rofi/config.rasi           ← app launcher + power menu theme
+          kitty/kitty.conf           ← terminal emulator config
+          picom/picom.conf           ← compositor (xrender backend for QEMU compat)
+          dunst/dunstrc              ← notification daemon
+          nvim/init.lua              ← neovim config (no plugin manager)
+          gtk-3.0/settings.ini       ← GTK3 theme (Arc-Dark + Papirus-Dark)
+          zathura/zathurarc          ← PDF viewer theme (Claude palette)
+          redshift/redshift.conf     ← blue light filter (manual location, London defaults)
+    root/
+      customize_airootfs.sh          ← chroot hook: runs after packages installed
+    usr/
+      local/
+        bin/
+          start-bspwm-session        ← X session entry point (called by greetd/startx)
+          axyl-install               ← interactive installer menu (opens in kitty)
+          axyl-setup                 ← post-install helper
+          axyl-powermenu             ← rofi power menu (logout/reboot/shutdown/sleep)
+          axyl-lock                  ← i3lock wrapper (navy background, --nofork)
+          axyl-osd-volume            ← volume OSD helper (pamixer + dunstify progress bar)
+          axyl-osd-brightness        ← brightness OSD helper (brightnessctl + dunstify)
+  efiboot/
+    loader/loader.conf               ← systemd-boot loader config
+    loader/entries/
+      01-axyl-x86_64-linux.conf      ← UEFI boot entry
+  syslinux/                          ← BIOS bootloader files
+build.sh                             ← wrapper: cleans work/out dirs, calls mkarchiso
+flash.sh                             ← writes ISO to USB with dd (USB drives only)
+README.md                            ← user-facing documentation
+```
+
+---
+
+## Build System
+
+### profiledef.sh — Current Values
+
+```bash
+iso_name="axyl"
+iso_label="AXYL_$(date +%Y%m)"          # used as archisolabel= on kernel cmdline
+iso_publisher="Axyl Linux"
+iso_application="Axyl Linux Live/Install CD"
+iso_version="$(date +%Y.%m.%d)"
+install_dir="arch"                       # must match archisobasedir= in boot entry
+buildmodes=('iso')
+bootmodes=('bios.syslinux' 'uefi.systemd-boot')
+arch="x86_64"
+pacman_conf="pacman.conf"
+airootfs_image_type="squashfs"
+airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '15' '-b' '512K')
+```
+
+`file_permissions` — all executables that need 755 in the live system:
+
+```bash
+declare -A file_permissions=(
+    ["/root/customize_airootfs.sh"]="0:0:755"
+    ["/etc/skel/.xinitrc"]="0:0:755"
+    ["/etc/skel/.config/bspwm/bspwmrc"]="0:0:755"
+    ["/etc/skel/.config/polybar/launch.sh"]="0:0:755"
+    ["/usr/local/bin/start-bspwm-session"]="0:0:755"
+    ["/usr/local/bin/axyl-install"]="0:0:755"
+    ["/usr/local/bin/axyl-setup"]="0:0:755"
+    ["/usr/local/bin/axyl-powermenu"]="0:0:755"
+    ["/usr/local/bin/axyl-lock"]="0:0:755"
+    ["/usr/local/bin/axyl-osd-volume"]="0:0:755"
+    ["/usr/local/bin/axyl-osd-brightness"]="0:0:755"
+)
+```
+
+`file_permissions` is applied by mkarchiso during the build, before the chroot runs. Paths are relative to the **live rootfs**, not the repo. The skel files are set to 755 here so `useradd -m` copies them with the execute bit preserved.
+
+### mkinitcpio.conf — Current Values
+
+```
+MODULES=(loop squashfs overlay)
+BINARIES=()
+FILES=()
+HOOKS=(base udev modconf archiso archiso_loop_mnt kms block filesystems keyboard)
+COMPRESSION="xz"
+```
+
+**Hook rules (non-negotiable):**
+- `archiso` and `archiso_loop_mnt` come from the **`mkinitcpio-archiso`** package (not `archiso`). Always have `mkinitcpio-archiso` in `packages.x86_64`.
+- `archiso_shutdown` was **removed** from `mkinitcpio-archiso` in the current version. Never add it.
+- `archiso_kms` was **deprecated**. Use the standard `kms` hook instead.
+- Hook order matters: `archiso` and `archiso_loop_mnt` must appear before `block`.
+- `MODULES=(loop squashfs overlay)` — all three are required for the live squashfs to mount.
+- This file is at `airootfs/etc/mkinitcpio.conf` (a direct config, not a drop-in). It takes precedence over any drop-in in `mkinitcpio.conf.d/`.
+
+### Bootloaders
+
+**UEFI — systemd-boot** (`uefi.systemd-boot`):
+- Config in `archiso/efiboot/loader/loader.conf` and `efiboot/loader/entries/01-axyl-x86_64-linux.conf`
+- Kernel cmdline: `archisobasedir=%INSTALL_DIR% archisolabel=%ARCHISO_LABEL% cow_spacesize=1G`
+- `cow_spacesize=1G` — writable overlay size in RAM
+- `%INSTALL_DIR%` = `arch` (matches `install_dir` in profiledef.sh)
+- `%ARCHISO_LABEL%` = substituted from `iso_label` at build time
+- systemd-boot requires **no grub package on the build host**
+
+**BIOS — syslinux** (`bios.syslinux`):
+- `syslinux` package must be in `packages.x86_64` AND on the build host
+
+### customize_airootfs.sh — Execution Order
+
+This script runs in a chroot of the live rootfs after all packages are installed. Network access is available (inherits host network namespace via arch-chroot). **Order matters:**
+
+1. `pacman-key --init && pacman-key --populate archlinux` — MUST be first
+2. Locale, timezone, hostname, /etc/hosts
+3. `systemctl enable` — NetworkManager, greetd, acpid; `set-default graphical.target`
+4. **Git clone Oh My Zsh into `/etc/skel/.oh-my-zsh/`** — MUST be before `useradd -m` so it is copied to `/home/axyl/`
+5. `useradd -m -G ... -s /bin/zsh axyl` — copies all of `/etc/skel/` to `/home/axyl/`
+6. Set passwords, write sudoers, run xdg-user-dirs-update
+7. `paccache -r -k0` — clean pacman cache to reduce ISO size
+
+### greetd Config
+
+```toml
+[terminal]
+vt = 2
+
+[default_session]
+command = "agreety --cmd /usr/local/bin/start-bspwm-session"
+user = "greeter"
+
+[initial_session]
+command = "startx /usr/local/bin/start-bspwm-session -- :0 vt2 -keeptty -nolisten tcp"
+user = "axyl"
+```
+
+**Critical:** `[initial_session]` is the autologin mechanism. `[default_session]` is the fallback greeter shown after the session ends. Using only `[default_session]` for autologin is WRONG — greetd will show a blank screen waiting for a greeter that never runs.
+
+`agreety` ships with the `greetd` package. It creates a `greeter` user/group on install.
+
+### Session Startup Chain
+
+```
+greetd (PAM session for axyl)
+  └─ startx /usr/local/bin/start-bspwm-session -- :0 vt2
+       └─ X server (:0, vt2)
+       └─ start-bspwm-session
+            ├─ xset, xsetroot (keyboard rate, cursor, DPMS off)
+            ├─ chmod +x ~/.config/bspwm/bspwmrc   ← safety net for execute bit
+            └─ exec dbus-run-session /usr/bin/bspwm
+                 └─ bspwm (auto-execs ~/.config/bspwm/bspwmrc if executable)
+                      └─ bspwmrc autostart:
+                           ├─ sxhkd &
+                           ├─ # picom (commented out; enable for shadows)
+                           ├─ feh --bg-fill wallpaper.jpg
+                           ├─ pipewire &, wireplumber &, pipewire-pulse &
+                           ├─ [wait for pactl readiness, 5 × 300ms]
+                           ├─ ~/.config/polybar/launch.sh &
+                           ├─ dunst &
+                           ├─ [2s deferred] polkit-gnome, nm-applet, numlockx, xss-lock
+                           └─ # 5s block removed (copyq/blueman/udiskie/redshift)
+```
+
+bspwm uses `execv()` to run bspwmrc with its shebang (`#!/usr/bin/env bash`). If bspwmrc is not executable, bspwm silently skips it — no sxhkd, no polybar, no keybindings. The `chmod +x` in `start-bspwm-session` is a required safety net.
+
+---
+
+## Build Requirements
+
+### Build-host packages (install with pacman on the Arch build machine)
+
+```
+archiso          ← provides mkarchiso
+mkinitcpio       ← builds the initramfs
+dosfstools       ← mkfs.fat for the ESP partition
+e2fsprogs        ← mkfs.ext4
+libisoburn       ← xorriso, used by mkarchiso to create the ISO image
+squashfs-tools   ← mksquashfs for the rootfs image
+syslinux         ← BIOS bootloader generation
+git              ← used in customize_airootfs.sh to clone Oh My Zsh
+```
+
+**Not needed on build host:** grub (UEFI uses systemd-boot). Do NOT install grub on the build host expecting it to help — systemd-boot is handled entirely by mkarchiso.
+
+### Network requirement during build
+
+`customize_airootfs.sh` clones three git repositories from GitHub:
+- `https://github.com/ohmyzsh/ohmyzsh.git` → `/etc/skel/.oh-my-zsh`
+- `https://github.com/zsh-users/zsh-autosuggestions.git` → `.oh-my-zsh/custom/plugins/zsh-autosuggestions`
+- `https://github.com/zsh-users/zsh-syntax-highlighting.git` → `.oh-my-zsh/custom/plugins/zsh-syntax-highlighting`
+
+The build host must have outbound HTTPS to GitHub. The arch-chroot environment inherits the host network, so DNS and TCP work transparently.
+
+---
+
+## Build Commands
+
+```bash
+# Full clean build (uses build.sh wrapper)
+sudo bash build.sh
+
+# Manual build
+sudo mkarchiso -v -w ./axyl-work -o ./axyl-out ./archiso/
+
+# Clean work directory only (keep output)
+sudo rm -rf ./axyl-work
+
+# Full clean (remove work and output)
+sudo rm -rf ./axyl-work ./axyl-out
+
+# Flash to USB (build.sh output dir)
+sudo bash flash.sh ./axyl-out/axyl-*.iso /dev/sdX
+
+# Test BIOS boot in QEMU
+qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G -boot d
+
+# Test UEFI boot in QEMU (requires edk2-ovmf on build host)
+qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
+  -bios /usr/share/ovmf/x64/OVMF.fd
+```
+
+---
+
+## Package List Reference
+
+`archiso/packages.x86_64` — every package here is installed in the live system. Groups:
+
+| Group | Key packages | Purpose |
+|---|---|---|
+| Base | base, base-devel, linux, linux-firmware, linux-headers, intel-ucode, amd-ucode | Core system |
+| Initramfs | mkinitcpio, **mkinitcpio-archiso**, archlinux-keyring | Live boot hooks |
+| Bootloaders | grub, efibootmgr, mtools, os-prober, syslinux | BIOS + UEFI boot |
+| Xorg | xorg-server, xorg-xinit, xorg-xrandr, xorg-xsetroot, xorg-xrdb, xorg-xset, xorg-xkill, xorg-xdpyinfo, xorg-xauth, xterm | Display server |
+| GPU | xf86-video-vesa, xf86-video-amdgpu, xf86-video-nouveau, mesa, libva-mesa-driver, vulkan-radeon, vulkan-intel | GPU support |
+| WM | bspwm, sxhkd, picom, feh, dunst, libnotify, xdg-user-dirs, xdg-utils, xdg-desktop-portal, xdg-desktop-portal-gtk | Window manager stack |
+| Desktop | greetd, polybar, rofi, kitty | Display manager + bar + launcher + terminal |
+| Editors | neovim, vim, nano | Text editors |
+| Files | lf | TUI file manager (opens nsxiv/zathura/mpv via mime) |
+| Media | mpv, ffmpeg, imagemagick | Media playback + processing |
+| Audio | **pipewire**, pipewire-alsa, **pipewire-pulse**, **wireplumber**, gst-plugin-pipewire, alsa-utils, alsa-firmware, pavucontrol, pamixer, playerctl | PipeWire audio stack (PulseAudio-compatible) |
+| Network | networkmanager, network-manager-applet, wpa_supplicant, openssh, iptables | Network |
+| Dev tools | git, curl, wget, python, python-pip, jq, pacman-contrib | Dev + scripting |
+| Fonts | ttf-jetbrains-mono, ttf-font-awesome, noto-fonts, noto-fonts-emoji, ttf-liberation, terminus-font | All fonts used by polybar/kitty/rofi |
+| Theme | papirus-icon-theme, gnome-themes-extra, lxappearance, adwaita-icon-theme, polkit-gnome | GTK theme (Adwaita-dark) + icons + polkit agent |
+| Shell | zsh | Oh My Zsh runtime |
+| Utilities | **qutebrowser**, pv, btop, fastfetch, flameshot, xclip, xdotool, brightnessctl, numlockx, zip, unzip, p7zip, inxi, acpi, acpid, procps-ng, psmisc, util-linux | General tools |
+| Security | i3lock, xss-lock | Screen locker + auto-lock on suspend |
+| Desktop extras | udiskie, udisks2, redshift | Auto-mount, blue-light filter |
+| Bluetooth | bluez, bluez-utils, blueman | Bluetooth stack + GUI applet |
+| Viewers | zathura, zathura-pdf-mupdf, nsxiv | PDF + image viewers |
+| Installer | arch-install-scripts, archinstall, reflector, parted, gptfdisk, dosfstools, e2fsprogs, btrfs-progs, cryptsetup, lvm2, ntfs-3g, polkit | Target install tools |
+
+---
+
+## Color Scheme — Claude Palette
+
+| Role | Hex | Used in |
+|---|---|---|
+| Background | `#1a1a2e` | All app backgrounds |
+| Background Alt | `#16213e` | Input bars, tab backgrounds |
+| Foreground | `#e6e1d8` | Primary text |
+| Muted | `#6e7290` | Inactive/secondary text |
+| Accent (coral) | `#d97757` | Borders, focused, prompt, cursor |
+| Accent Alt | `#e8927c` | Presel feedback, hover states |
+| Red | `#ff5555` | Urgent, errors |
+
+---
+
+## Keybindings Summary
+
+| Binding | Action |
+|---|---|
+| `super + Return` | kitty terminal |
+| `super + space` | rofi app launcher |
+| `super + e` | lf file manager (in kitty) |
+| `super + b` | qutebrowser |
+| `super + shift + e` | axyl-powermenu (logout/reboot/shutdown/sleep) |
+| `super + l` | lock screen (axyl-lock → i3lock) |
+| `super + shift + q` | close focused window |
+| `super + shift + k` | kill focused window |
+| `super + f` | toggle fullscreen |
+| `super + shift + space` | toggle floating |
+| `super + m` | cycle desktop layout |
+| `super + r` | rotate node 90° |
+| `super + Escape` | reload sxhkd |
+| `super + shift + r` | restart bspwm |
+| `super + alt + Escape` | quit bspwm |
+| `super + {h,j,k,l}` | focus west/south/north/east |
+| `super + shift + {h,j,k,l}` | move node west/south/north/east |
+| `super + ctrl + {h,j,k,l}` | resize node |
+| `super + {1-9}` | focus workspace |
+| `super + shift + {1-9}` | move node to workspace |
+| `Print` | flameshot gui (region screenshot) |
+| `super + Print` | flameshot screen -c (full screen) |
+| `XF86Audio*` | axyl-osd-volume (pamixer + dunstify OSD) |
+| `XF86Brightness*` | axyl-osd-brightness (brightnessctl + dunstify OSD) |
+
+---
+
+## Known Pitfalls
+
+These caused real build or boot failures. Check here before debugging.
+
+### Hook errors (mkinitcpio)
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Hook 'archiso' cannot be found` | `archiso` (build tool) in packages.x86_64 instead of `mkinitcpio-archiso` (hook provider) | Replace `archiso` with `mkinitcpio-archiso` in packages.x86_64 |
+| `Hook 'archiso_shutdown' cannot be found` | Hook removed from current mkinitcpio-archiso | Remove `archiso_shutdown` from HOOKS |
+| `Hook 'archiso_kms' is deprecated` | Old hook name | Replace `archiso_kms` with `kms` in HOOKS |
+
+### Black screen on boot
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Black screen, no cursor | greetd shows nothing | Check greetd/config.toml — must use `[initial_session]` for autologin, not `[default_session]` |
+| Black screen, mouse cursor moves, no bar or keybindings | bspwmrc not executing | Execute bit missing on bspwmrc; `chmod +x` in start-bspwm-session is the safety net |
+| Black screen after wallpaper expected | feh can't find wallpaper | File extension mismatch — bspwmrc must reference `wallpaper.jpg` not `wallpaper.png` |
+| Polybar not starting — `launch.sh: permission denied` | `useradd -m` does not reliably preserve execute bits when copying from `/etc/skel/`, even when `file_permissions` sets the skel file to 755 | Add `chmod +x ~/.config/polybar/launch.sh` in bspwmrc immediately before calling it |
+| Bar-background-colored strip where polybar should be | polybar running but invisible | Polybar background matches desktop; check font/module init |
+
+### Polybar
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Polybar not starting | PipeWire race condition | bspwmrc starts pipewire/wireplumber/pipewire-pulse, then waits for `pactl info` to succeed before launching polybar |
+| Polybar not starting | Empty ramp-volume values | Font Awesome icons must be raw UTF-8 bytes in config.ini — write via script, not text editor that may strip PUA chars |
+| `UTF-8 with BOM` fatal error on start | config.ini has UTF-8 BOM | Strip BOM: `$b=[System.IO.File]::ReadAllBytes($f); [System.IO.File]::WriteAllBytes($f,$b[3..($b.Length-1)])` |
+| Icons not rendering | Wrong font or missing font fallback | rofi config.rasi sets `font: "JetBrains Mono 11"` so Pango falls back to FA6 for PUA chars |
+
+### Shell / terminal
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `bash: [[: command not found` | `[[` is a bash keyword, fails in POSIX mode | Use POSIX `case $- in *i*)` in .bashrc; use `[ -f ... ]` in .bash_profile |
+| `command not found: export` on line 1 of .zshrc | UTF-8 BOM prepended — zsh sees BOM+`export` as unknown command | Strip BOM from .zshrc (and any dotfile written by PowerShell); use `[System.Text.UTF8Encoding]::new($false)` for all writes |
+| No keybindings after login | sxhkd not started | bspwmrc not running (execute bit missing) |
+| Oh My Zsh not found at login | .oh-my-zsh not in /home/axyl/ | Git clone must happen BEFORE useradd -m in customize_airootfs.sh |
+
+### Font Awesome icons
+
+Font Awesome 6 uses the Unicode Private Use Area (U+E000–U+F8FF). These characters must be written as raw UTF-8 bytes into config files. Pasting them in a text editor on Windows may silently strip or corrupt them. Always verify with:
+
+```bash
+grep -cP "[\x80-\xFF]" archiso/airootfs/etc/skel/.config/polybar/config.ini
+```
+
+Expected: non-zero. If zero, icons are missing and must be re-written programmatically.
+
+Key codepoints (FA6 Free Solid):
+
+| Icon | Codepoint | Used in |
+|---|---|---|
+| fa-microchip | U+F2DB | polybar cpu module prefix |
+| fa-memory | U+F538 | polybar memory module prefix |
+| fa-volume-off | U+F026 | ramp-volume-0, label-muted |
+| fa-volume-low | U+F027 | ramp-volume-1 |
+| fa-volume-high | U+F028 | ramp-volume-2 |
+| fa-wifi | U+F1EB | network-wireless label |
+| fa-network-wired | U+F796 | network-wired label |
+| fa-clock | U+F017 | date module prefix |
+| fa-right-from-bracket | U+F2F5 | powermenu logout |
+| fa-arrows-rotate | U+F021 | powermenu reboot |
+| fa-power-off | U+F011 | powermenu shutdown |
+| fa-moon | U+F186 | powermenu sleep |
+
+---
+
+## Live System Credentials
+
+| Account | Password | Notes |
+|---|---|---|
+| axyl | axyl | Default user, passwordless sudo, shell = /bin/zsh |
+| root | toor | Root account |
 
 ---
 
@@ -17,21 +410,10 @@ This repository contains:
 
 **Every task Claude performs must be tracked as a TODO.**
 
-Rules:
-- Before starting any work, write a TODO list using `TodoWrite` for the current task.
+- Write the TODO list with `TodoWrite` before starting any work.
 - Mark each item complete immediately when done — do not batch completions.
 - Never leave a TODO open at the end of a session without noting its status.
-- If a task is blocked, annotate it with the blocker inline (e.g., `[BLOCKED: missing package]`).
-- TODOs must be granular: one action per item, not multi-step blobs.
-
-Example format:
-```
-[ ] Scaffold archiso releng profile directory
-[ ] Add bspwm to packages.x86_64
-[ ] Copy bspwm config to airootfs overlay
-[ ] Verify sxhkd dependency is listed
-[ ] Test build with mkarchiso
-```
+- TODOs must be granular: one action per item.
 
 ---
 
@@ -39,124 +421,52 @@ Example format:
 
 **Never assume a dependency is available. Verify it.**
 
-Rules:
-- Before referencing any tool, package, or file, confirm it exists in the repo or is listed in `packages.x86_64` (or equivalent package list).
-- If a dependency is required but not yet present, add it — do not silently rely on it.
-- After adding any new config file, hook, or script, check whether it introduces new runtime or build-time dependencies.
-- Repeat this dependency audit until you are **100% confident** no undeclared dependency exists.
-- Keep a running list of external tools required to build the ISO locally (document in README under "Build Requirements").
-
-Required build-time tools (must be present on the build host):
-- `archiso`
-- `mkinitcpio`
-- `dosfstools`
-- `e2fsprogs`
-- `libisoburn` (for `xorriso`)
-- `squashfs-tools`
-- `git`
-
-Dependency check process for every new feature:
-1. Identify every binary, library, or config the feature calls.
-2. Trace each back to its Arch package name (`pkgfile` or `pacman -F`).
-3. Add any missing packages to `packages.x86_64`.
+For every new feature:
+1. Identify every binary, library, or config the feature references.
+2. Trace each to its Arch package name.
+3. Add missing packages to `packages.x86_64`.
 4. Verify no circular or conflicting packages are introduced.
+
+After adding any config, hook, or script, audit its runtime dependencies before closing the task.
 
 ---
 
-## README Updates
+## Coding Rules
 
-**Update README.md for every meaningful change.**
-
-Update triggers (update README when any of these occur):
-- A new package or package group is added to the ISO
-- A new dotfile or WM configuration is added or modified
-- A new build step or build flag is introduced
-- A new dependency (build-time or runtime) is required
-- A default keybinding, theme, or behaviour changes
-- A script is added to `airootfs/usr/local/bin/` or equivalent
-
-README must always contain:
-- **What this ISO is** — one-paragraph description
-- **Build Requirements** — host packages needed to run `mkarchiso`
-- **How to Build** — step-by-step commands
-- **Key Features** — bspwm config highlights, included packages, defaults
-- **Keybindings** — super key map summary (or link to sxhkdrc)
-- **Changelog** — dated bullet points for significant changes
+- Shell scripts: `#!/usr/bin/env bash` and `set -euo pipefail`.
+- `.bashrc` and `.bash_profile`: use only POSIX constructs (`case`, `[ ]`). Never `[[ ]]` — these files may be sourced in a POSIX-mode shell.
+- No comments unless the WHY is non-obvious.
+- No placeholder or stub code — every added line must be functional.
+- Keep configs minimal: do not add packages or features not explicitly requested.
+- Font Awesome icons in text configs must be written as raw UTF-8 bytes (use PowerShell `[char]0xXXXX` or equivalent, not a text editor).
+- **PowerShell file writes must NEVER include BOM.** `[System.Text.Encoding]::UTF8` and `[System.IO.File]::WriteAllText` with default encoding both write a UTF-8 BOM. Always use `[System.Text.UTF8Encoding]::new($false)` explicitly:
+  ```powershell
+  $utf8 = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllText($path, $content, $utf8)
+  ```
+  BOM causes: polybar `UTF-8 with BOM` fatal error; zsh `command not found: export` on line 1; bash scripts fail to exec (kernel misses `#!` shebang). Always verify with `ReadAllBytes` — first 3 bytes must NOT be `EF BB BF`.
 
 ---
 
 ## File Structure Checks
 
-**After every edit session, verify the file structure is internally consistent.**
+Run mentally after every edit session:
 
-Checks to run mentally (or with shell commands) before finishing any task:
-
-```
-archiso/
-  profiledef.sh        ← must exist; defines ISO name, arch, compression
-  packages.x86_64      ← all runtime packages listed here
-  pacman.conf          ← mirrors and repos used during build
-  airootfs/            ← root overlay copied into the live system
-    etc/
-      skel/            ← default user home (bspwm configs go here)
-    usr/
-      local/
-        bin/           ← custom scripts
-  efiboot/             ← EFI bootloader files
-  syslinux/            ← BIOS bootloader files (if supporting legacy)
-  grub/                ← GRUB config (if used)
-```
-
-Checks:
-- Every file in `airootfs/etc/skel/` has a corresponding package listed in `packages.x86_64` that owns or uses it.
-- Every script in `airootfs/usr/local/bin/` has its interpreter listed (e.g., `bash`, `python`, `python-gobject`).
-- `profiledef.sh` references a compression method available in `squashfs-tools` on the build host.
-- No config file references a binary that is not in `packages.x86_64`.
-
-Run this check explicitly whenever:
-- A new dotfile is added
-- A package is added or removed
-- A new script is introduced
-- The airootfs overlay is reorganised
+- Every binary referenced in `airootfs/etc/skel/**` has a corresponding package in `packages.x86_64`.
+- Every script in `airootfs/usr/local/bin/` has an entry in `file_permissions` at 0:0:755.
+- `bspwmrc` and `launch.sh` have entries in `file_permissions` at 0:0:755.
+- `mkinitcpio.conf` HOOKS contain no deprecated or removed hook names.
+- `profiledef.sh` bootmodes use systemd-boot for UEFI (not grub).
+- `greetd/config.toml` has `[initial_session]` for autologin.
+- Any new wallpaper image: extension in `bspwmrc` feh call matches the actual file extension.
 
 ---
 
-## Build & Test Commands
-
-```bash
-# Build the ISO (run as root or with sudo)
-sudo mkarchiso -v -w /tmp/archiso-work -o /tmp/archiso-out ./archiso/
-
-# Clean the work directory before a rebuild
-sudo rm -rf /tmp/archiso-work
-
-# Test in QEMU (BIOS)
-qemu-system-x86_64 -cdrom /tmp/archiso-out/*.iso -m 2G -boot d
-
-# Test in QEMU (UEFI, requires ovmf)
-qemu-system-x86_64 -cdrom /tmp/archiso-out/*.iso -m 2G \
-  -bios /usr/share/ovmf/x64/OVMF.fd
-```
-
----
-
-## Coding & Editing Rules
-
-- Prefer editing existing files over creating new ones.
-- Shell scripts use `#!/usr/bin/env bash` and `set -euo pipefail`.
-- No comments unless the WHY is non-obvious (a hidden constraint, workaround, or subtle invariant).
-- Do not add error handling for scenarios that cannot happen (trust `mkarchiso` internals).
-- No placeholder or stub code — every added line must be functional.
-- Keep configs minimal: do not add WM features or packages not explicitly requested.
-
----
-
-## Workflow Checklist (run mentally on every task)
+## Workflow Checklist
 
 ```
 [ ] Write TODOs before starting
-[ ] Identify all new dependencies
-[ ] Add missing packages to packages.x86_64
+[ ] Identify all new dependencies; add to packages.x86_64
 [ ] Edit or create the relevant files
 [ ] Verify file structure is still consistent
 [ ] Update README.md if any user-facing detail changed

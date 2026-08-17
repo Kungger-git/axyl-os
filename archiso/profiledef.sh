@@ -7,11 +7,11 @@ iso_application="Axyl Linux Live/Install CD"
 iso_version="$(date +%Y.%m.%d)"
 install_dir="arch"
 buildmodes=('iso')
-bootmodes=('bios.syslinux' 'uefi.grub')
+bootmodes=('bios.syslinux' 'uefi.systemd-boot')
 arch="x86_64"
 pacman_conf="pacman.conf"
 airootfs_image_type="squashfs"
-airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '15' '-b' '1M')
+airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '15' '-b' '512K')
 
 declare -A file_permissions=(
     ["/root/customize_airootfs.sh"]="0:0:755"
@@ -21,4 +21,8 @@ declare -A file_permissions=(
     ["/usr/local/bin/start-bspwm-session"]="0:0:755"
     ["/usr/local/bin/axyl-install"]="0:0:755"
     ["/usr/local/bin/axyl-setup"]="0:0:755"
+    ["/usr/local/bin/axyl-powermenu"]="0:0:755"
+    ["/usr/local/bin/axyl-lock"]="0:0:755"
+    ["/usr/local/bin/axyl-osd-volume"]="0:0:755"
+    ["/usr/local/bin/axyl-osd-brightness"]="0:0:755"
 )

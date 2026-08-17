@@ -2,5 +2,9 @@
 vt = 2
 
 [default_session]
+command = "agreety --cmd /usr/local/bin/start-bspwm-session"
+user = "greeter"
+
+[initial_session]
 command = "startx /usr/local/bin/start-bspwm-session -- :0 vt2 -keeptty -nolisten tcp"
 user = "axyl"

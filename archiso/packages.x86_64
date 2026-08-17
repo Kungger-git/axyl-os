@@ -3,8 +3,10 @@ base-devel
 linux
 linux-firmware
 linux-headers
+intel-ucode
+amd-ucode
 mkinitcpio
-archiso
+mkinitcpio-archiso
 archlinux-keyring
 sudo
 dbus
@@ -55,20 +57,17 @@ neovim
 vim
 nano
 
-thunar
-gvfs
-gvfs-mtp
-tumbler
-thunar-archive-plugin
-thunar-volman
-file-roller
+lf
 
 mpv
 ffmpeg
 imagemagick
 
-pulseaudio
-pulseaudio-alsa
+pipewire
+pipewire-alsa
+pipewire-pulse
+wireplumber
+gst-plugin-pipewire
 alsa-utils
 alsa-firmware
 pavucontrol
@@ -80,8 +79,6 @@ network-manager-applet
 wpa_supplicant
 openssh
 iptables
-jack2
-pulseaudio-jack
 
 git
 curl
@@ -98,11 +95,26 @@ noto-fonts-emoji
 ttf-liberation
 terminus-font
 
+papirus-icon-theme
 gnome-themes-extra
 lxappearance
 adwaita-icon-theme
 polkit-gnome
 
+i3lock
+xss-lock
+bluez
+bluez-utils
+blueman
+zathura
+zathura-pdf-mupdf
+nsxiv
+udiskie
+udisks2
+redshift
+qutebrowser
+zsh
+pv
 btop
 fastfetch
 flameshot
