@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RESET='\e[0m'
+ACCENT='\e[38;2;217;119;87m'
+MUTED='\e[38;2;110;114;144m'
+FG='\e[38;2;230;225;216m'
+RED='\e[38;2;255;85;85m'
+GREEN='\e[38;2;80;250;123m'
+
+clear
+
+echo -e "${ACCENT}"
+cat << 'BANNER'
+     _   __  ____  __
+    / | / / / /\ \/ /
+   /  |/ / / /  \  /
+  / /|  / / /___/ /
+ /_/ |_/_/_____/_/
+BANNER
+echo -e "${MUTED}         Artix Linux / runit${RESET}"
+echo ""
+
+echo -e "${MUTED}Waiting for network...${RESET}"
+timeout=30; count=0
+while ! nmcli -t -f STATE general status 2>/dev/null | grep -q "connected"; do
+    sleep 1; count=$((count + 1))
+    [ $count -ge $timeout ] && {
+        echo -e "${RED}Network not available. Connect manually in a shell.${RESET}"; break; }
+done
+nmcli -t -f STATE general status 2>/dev/null | grep -q "connected" \
+    && echo -e "${GREEN}Network connected.${RESET}"
+echo ""
+
+echo -e "${ACCENT}┌─────────────────────────────────┐${RESET}"
+echo -e "${ACCENT}│       Axyl Linux Installer       │${RESET}"
+echo -e "${ACCENT}│         (Artix / runit)          │${RESET}"
+echo -e "${ACCENT}└─────────────────────────────────┘${RESET}"
+echo ""
+echo -e "  ${ACCENT}[1]${FG} Installation steps  ${MUTED}(basestrap guide)${RESET}"
+echo -e "  ${ACCENT}[2]${FG} Open a shell  ${MUTED}(manual / advanced)${RESET}"
+echo -e "  ${ACCENT}[3]${FG} Exit to desktop${RESET}"
+echo ""
+echo -ne "${ACCENT}Choice [1-3]: ${RESET}"
+read -r choice
+
+case "$choice" in
+    1)
+        echo ""
+        echo -e "${ACCENT}Artix Linux Installation Guide${RESET}"
+        echo -e "${MUTED}──────────────────────────────${RESET}"
+        echo -e "${FG}1. Partition your disk:${RESET}"
+        echo -e "${MUTED}   cfdisk /dev/sdX${RESET}"
+        echo ""
+        echo -e "${FG}2. Format and mount:${RESET}"
+        echo -e "${MUTED}   mkfs.ext4 /dev/sdX2${RESET}"
+        echo -e "${MUTED}   mount /dev/sdX2 /mnt${RESET}"
+        echo ""
+        echo -e "${FG}3. Install base system:${RESET}"
+        echo -e "${MUTED}   basestrap /mnt base base-devel runit elogind-runit linux linux-firmware${RESET}"
+        echo ""
+        echo -e "${FG}4. Generate fstab:${RESET}"
+        echo -e "${MUTED}   fstabgen -U /mnt >> /mnt/etc/fstab${RESET}"
+        echo ""
+        echo -e "${FG}5. Chroot and configure:${RESET}"
+        echo -e "${MUTED}   artix-chroot /mnt${RESET}"
+        echo ""
+        echo -e "${MUTED}Full guide: wiki.artixlinux.org/base/Installation${RESET}"
+        echo ""
+        echo -e "${MUTED}Opening shell. Type 'exit' to return.${RESET}"
+        echo -e "${MUTED}Credentials: user=axyl  password=axyl${RESET}"
+        echo ""
+        bash
+        ;;
+    2)
+        echo ""
+        echo -e "${MUTED}Opening shell. Type 'exit' to return to the desktop.${RESET}"
+        echo -e "${MUTED}Credentials: user=axyl  password=axyl${RESET}"
+        echo ""
+        bash
+        ;;
+    3)
+        ;;
+    *)
+        echo -e "${RED}Invalid choice.${RESET}"
+        sleep 1
+        exec "$0"
+        ;;
+esac
+
+touch "$HOME/.axyl-install-done" 2>/dev/null || true
