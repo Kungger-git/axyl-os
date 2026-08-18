@@ -21,74 +21,85 @@ This file is the authoritative reference for all future Claude sessions in this 
 
 ## Repository Layout
 
-The `archiso/` tree is the base for both variants. `artixiso/` is an **override layer**: `build.sh artix` merges with `cp -rT archiso/ tmp/ && cp -rT artixiso/ tmp/`, so every file in `artixiso/` silently replaces its counterpart in `archiso/`. Files absent from `artixiso/` are taken verbatim from `archiso/`.
+`build.sh` assembles a temporary profile directory for each variant, then runs `mkarchiso` against it. The assembly order is:
+
+1. Copy `archiso/` (base for both variants)
+2. For artix: overlay `artixiso/` on top (`cp -rT` — files in `artixiso/` win on collision)
+3. Copy `skel/` into `tmp/airootfs/etc/skel/` (shared; variant-neutral)
+
+`skel/` lives at the repo root so it is clearly not owned by either variant. It is never modified by the override layer merge.
 
 ```
-archiso/
-  profiledef.sh                      ← ISO metadata, bootmodes, compression, file_permissions
-  packages.x86_64                    ← every package installed in the live system
-  pacman.conf                        ← mirrors and repos used during the archiso build
-  airootfs/                          ← overlay: copied verbatim into the live rootfs
+skel/                              ← shared user dotfiles; injected by build.sh into both variants
+  .bash_profile                    ← sources .bashrc (POSIX [ ] only, no [[ ]])
+  .bashrc                          ← bash aliases/exports (POSIX case, no [[ ]])
+  .zshrc                           ← Oh My Zsh config, sourced by zsh login shell
+  .xinitrc                         ← manual startx fallback (not used by greetd)
+  .gtkrc-2.0                       ← GTK2 theme (Adwaita-dark + Papirus-Dark)
+  .config/
+    bspwm/bspwmrc                  ← WM config + full autostart (must be executable)
+    bspwm/wallpaper.jpg            ← desktop wallpaper (feh --bg-fill)
+    sxhkd/sxhkdrc                  ← all keybindings
+    polybar/config.ini             ← bar config (Font Awesome icons as raw UTF-8 bytes)
+    polybar/launch.sh              ← kills old instance, starts polybar axyl
+    rofi/config.rasi               ← app launcher + power menu theme
+    kitty/kitty.conf               ← terminal emulator config
+    picom/picom.conf               ← compositor (xrender backend for QEMU compat)
+    dunst/dunstrc                  ← notification daemon
+    nvim/init.lua                  ← neovim config (no plugin manager)
+    gtk-3.0/settings.ini           ← GTK3 theme (Adwaita-dark + Papirus-Dark)
+    zathura/zathurarc              ← PDF viewer theme (Claude palette)
+    redshift/redshift.conf         ← blue light filter (manual location, London defaults)
+    qutebrowser/config.py          ← browser config
+    lf/lfrc                        ← file manager config
+
+archiso/                           ← arch variant base (also the base for artix)
+  profiledef.sh                    ← ISO metadata, bootmodes, compression, file_permissions
+  packages.x86_64                  ← every package installed in the live system
+  pacman.conf                      ← mirrors and repos used during the archiso build
+  airootfs/                        ← overlay: copied verbatim into the live rootfs
     etc/
-      greetd/config.toml             ← display manager config (autologin via [initial_session])
-      mkinitcpio.conf                ← live initramfs config (overrides any drop-in)
-      mkinitcpio.conf.d/archiso.conf ← comment-only drop-in (harmless)
-      skel/                          ← copied to /home/axyl/ by useradd -m
-        .bash_profile                ← sources .bashrc (POSIX [ ] only, no [[ ]])
-        .bashrc                      ← bash aliases/exports (POSIX case, no [[ ]])
-        .zshrc                       ← Oh My Zsh config, sourced by zsh login shell
-        .xinitrc                     ← manual startx fallback (not used by greetd)
-        .gtkrc-2.0                   ← GTK2 theme (Arc-Dark + Papirus-Dark)
-        .config/
-          bspwm/bspwmrc              ← WM config + full autostart (must be executable)
-          bspwm/wallpaper.jpg        ← desktop wallpaper (feh --bg-fill)
-          sxhkd/sxhkdrc              ← all keybindings
-          polybar/config.ini         ← bar config (Font Awesome icons as raw UTF-8 bytes)
-          polybar/launch.sh          ← kills old instance, starts polybar axyl
-          rofi/config.rasi           ← app launcher + power menu theme
-          kitty/kitty.conf           ← terminal emulator config
-          picom/picom.conf           ← compositor (xrender backend for QEMU compat)
-          dunst/dunstrc              ← notification daemon
-          nvim/init.lua              ← neovim config (no plugin manager)
-          gtk-3.0/settings.ini       ← GTK3 theme (Arc-Dark + Papirus-Dark)
-          zathura/zathurarc          ← PDF viewer theme (Claude palette)
-          redshift/redshift.conf     ← blue light filter (manual location, London defaults)
+      greetd/config.toml           ← display manager config (autologin via [initial_session])
+      mkinitcpio.conf              ← live initramfs config
     root/
-      customize_airootfs.sh          ← chroot hook: runs after packages installed
+      customize_airootfs.sh        ← chroot hook: runs after packages installed
     usr/
-      local/
-        bin/
-          start-bspwm-session        ← X session entry point (called by greetd/startx)
-          axyl-install               ← interactive installer menu (opens in kitty)
-          axyl-setup                 ← post-install helper
-          axyl-powermenu             ← rofi power menu (logout/reboot/shutdown/sleep)
-          axyl-lock                  ← i3lock wrapper (navy background, --nofork)
-          axyl-osd-volume            ← volume OSD helper (pamixer + dunstify progress bar)
-          axyl-osd-brightness        ← brightness OSD helper (brightnessctl + dunstify)
+      local/bin/
+        start-bspwm-session        ← X session entry point (called by greetd/startx)
+        axyl-install               ← interactive installer menu (opens in kitty)
+        axyl-setup                 ← post-install helper
+        axyl-powermenu             ← rofi power menu (logout/reboot/shutdown/sleep)
+        axyl-lock                  ← i3lock wrapper (navy background, --nofork)
+        axyl-osd-volume            ← volume OSD helper (pamixer + dunstify progress bar)
+        axyl-osd-brightness        ← brightness OSD helper (brightnessctl + dunstify)
   efiboot/
-    loader/loader.conf               ← systemd-boot loader config
+    loader/loader.conf             ← systemd-boot loader config
     loader/entries/
-      01-axyl-x86_64-linux.conf      ← UEFI boot entry
-  syslinux/                          ← BIOS bootloader files
-build.sh                             ← wrapper: cleans work/out dirs, calls mkarchiso
-flash.sh                             ← writes ISO to USB with dd (USB drives only)
-README.md                            ← user-facing documentation
-Dockerfile.artix                     ← Docker build environment for the artix variant
-artixiso/                            ← override layer: files here win over archiso/
-  profiledef.sh                      ← Artix overrides (runit label, GRUB bootmode)
-  pacman.conf                        ← Artix repos + Arch [extra] for missing packages
-  packages.x86_64                    ← Artix package list (runit packages, no systemd)
+      01-axyl-x86_64-linux.conf    ← UEFI boot entry
+  syslinux/                        ← BIOS bootloader files
+
+artixiso/                          ← override layer: files here win over archiso/
+  profiledef.sh                    ← Artix overrides (runit label, GRUB bootmode)
+  pacman.conf                      ← Artix repos + Arch [extra] for missing packages
+  packages.x86_64                  ← Artix package list (runit packages, no systemd)
   grub/
-    grub.cfg                         ← GRUB UEFI menu (BIOS uses archiso/syslinux/)
+    grub.cfg                       ← GRUB UEFI menu (BIOS uses archiso/syslinux/)
   airootfs/
     etc/
-      mkinitcpio.conf                ← MODULES includes isofs (required for Artix)
+      mkinitcpio.conf              ← MODULES includes isofs (required for Artix)
     root/
-      customize_airootfs.sh          ← runit services, mkinitcpio preset bypass
+      customize_airootfs.sh        ← runit services, mkinitcpio preset bypass
     usr/local/bin/
-      axyl-install                   ← Artix installer guide (pacstrap/genfstab/arch-chroot)
-      axyl-powermenu                 ← loginctl reboot/poweroff/suspend (NOT systemctl)
-      axyl-setup                     ← runit greetd enablement (NOT systemctl)
+      axyl-install                 ← Artix installer guide (pacstrap/genfstab/arch-chroot)
+      axyl-powermenu               ← loginctl reboot/poweroff/suspend (NOT systemctl)
+      axyl-setup                   ← runit greetd enablement (NOT systemctl)
+
+docker/
+  Dockerfile.arch                  ← Docker build environment for the arch variant
+  Dockerfile.artix                 ← Docker build environment for the artix variant
+build.sh                           ← assembles profile, builds Docker image, runs mkarchiso
+flash.sh                           ← writes ISO to USB with dd (USB drives only)
+README.md                          ← user-facing documentation
 ```
 
 ---
@@ -239,7 +250,7 @@ bspwm uses `execv()` to run bspwmrc with its shebang (`#!/usr/bin/env bash`). If
 
 Both variants build inside Docker — no native Arch/Artix install required. The only host dependency is Docker with the daemon running.
 
-### Dockerfile.arch — build-host packages
+### docker/Dockerfile.arch — build-host packages
 
 These are installed into the `archlinux:latest` Docker container:
 
@@ -346,18 +357,32 @@ qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
 | `super + l` | lock screen (axyl-lock → i3lock) |
 | `super + shift + q` | close focused window |
 | `super + shift + k` | kill focused window |
+| `super + {h,j,k,l}` | focus west/south/north/east |
+| `super + shift + {h,j,k,l}` | swap node west/south/north/east |
+| `alt + Tab / alt + shift + Tab` | cycle windows forward/back |
+| `super + bracket{left,right}` | focus prev/next desktop |
+| `super + {grave,Tab}` | focus last node / last desktop |
+| `super + {o,i}` | focus older/newer in history |
+| `super + {p,comma,period}` | focus parent/first/second child |
+| `super + {1-9}` | focus workspace |
+| `super + shift + {1-9}` | move node to workspace |
+| `super + {t,shift+t}` | set tiled / pseudo_tiled |
 | `super + f` | toggle fullscreen |
 | `super + shift + space` | toggle floating |
 | `super + m` | cycle desktop layout |
 | `super + r` | rotate node 90° |
+| `super + y` | send newest marked to newest preselected |
+| `super + g` | swap with biggest window |
+| `super + ctrl + {h,j,k,l}` | preselect direction |
+| `super + ctrl + {1-9}` | preselect split ratio |
+| `super + ctrl + space` | cancel preselection |
+| `super + ctrl + {m,x,y,z}` | toggle marked/locked/sticky/private flag |
+| `super + alt + {h,j,k,l}` | expand window |
+| `super + alt + shift + {h,j,k,l}` | shrink window |
+| `super + {Left,Down,Up,Right}` | move floating window |
 | `super + Escape` | reload sxhkd |
 | `super + shift + r` | restart bspwm |
 | `super + alt + Escape` | quit bspwm |
-| `super + {h,j,k,l}` | focus west/south/north/east |
-| `super + shift + {h,j,k,l}` | move node west/south/north/east |
-| `super + ctrl + {h,j,k,l}` | resize node |
-| `super + {1-9}` | focus workspace |
-| `super + shift + {1-9}` | move node to workspace |
 | `Print` | flameshot gui (region screenshot) |
 | `super + Print` | flameshot screen -c (full screen) |
 | `XF86Audio*` | axyl-osd-volume (pamixer + dunstify OSD) |
@@ -592,7 +617,7 @@ These caused real build or boot failures. Check here before debugging.
 Font Awesome 6 uses the Unicode Private Use Area (U+E000–U+F8FF). These characters must be written as raw UTF-8 bytes into config files. Pasting them in a text editor on Windows may silently strip or corrupt them. Always verify with:
 
 ```bash
-grep -cP "[\x80-\xFF]" archiso/airootfs/etc/skel/.config/polybar/config.ini
+grep -cP "[\x80-\xFF]" skel/.config/polybar/config.ini
 ```
 
 Expected: non-zero. If zero, icons are missing and must be re-written programmatically.
@@ -671,7 +696,7 @@ After adding any config, hook, or script, audit its runtime dependencies before 
 
 Run mentally after every edit session:
 
-- Every binary referenced in `airootfs/etc/skel/**` has a corresponding package in `packages.x86_64`.
+- Every binary referenced in `skel/**` has a corresponding package in `packages.x86_64`.
 - Every script in `airootfs/usr/local/bin/` has an entry in `file_permissions` at 0:0:755.
 - `bspwmrc` and `launch.sh` have entries in `file_permissions` at 0:0:755.
 - `mkinitcpio.conf` HOOKS contain no deprecated or removed hook names.

@@ -61,4 +61,4 @@ sudo -Hu axyl xdg-user-dirs-update
 fc-cache -fv
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
-paccache -r -k0 || true
+pacman -Scc --noconfirm

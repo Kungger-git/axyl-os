@@ -82,4 +82,4 @@ chmod +x \
 fc-cache -fv
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
-paccache -r -k0 || true
+pacman -Scc --noconfirm

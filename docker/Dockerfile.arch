@@ -1,0 +1,20 @@
+FROM archlinux:latest
+
+# Initialize keyring — required before any pacman operations in the container.
+# The archlinux Docker image ships with an uninitialized keyring.
+RUN pacman-key --init && \
+    pacman-key --populate archlinux && \
+    pacman -Syu --noconfirm
+
+RUN pacman -S --noconfirm --needed \
+        archiso \
+        dosfstools \
+        e2fsprogs \
+        libisoburn \
+        squashfs-tools \
+        syslinux \
+        mkinitcpio \
+        git
+
+# systemd (already in base) provides systemd-bootx64.efi, which mkarchiso
+# needs on the build host for the uefi.systemd-boot bootmode.

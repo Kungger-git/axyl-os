@@ -13,10 +13,16 @@ Both build inside Docker — no native Arch or Artix host required.
 
 ---
 
-## Build Requirements
+## First-Time Setup
 
-- **Docker** with the daemon running
-- Outbound HTTPS to GitHub (the build clones Oh My Zsh and plugins during `customize_airootfs.sh`)
+Run once on the build machine to install Docker and optionally QEMU:
+
+```bash
+chmod +x setup.sh
+sudo ./setup.sh
+```
+
+Installs: `docker`, `docker-buildx` (eliminates legacy builder warning). Optionally installs `qemu-system-x86` + `edk2-ovmf` for ISO testing.
 
 ---
 
@@ -32,21 +38,21 @@ Both build inside Docker — no native Arch or Artix host required.
 
 The script rebuilds the Docker builder image from scratch on every run, then runs `mkarchiso` inside the container. The finished ISO is written to `./axyl-out/`.
 
+### Flash to USB
+
+```bash
+sudo bash flash.sh ./axyl-out/axyl-*.iso /dev/sdX
+```
+
 ### Test in QEMU
 
 ```bash
 # BIOS
 qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G -boot d
 
-# UEFI (requires edk2-ovmf on host)
+# UEFI (requires edk2-ovmf)
 qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
   -bios /usr/share/ovmf/x64/OVMF.fd
-```
-
-### Flash to USB
-
-```bash
-sudo bash flash.sh ./axyl-out/axyl-*.iso /dev/sdX
 ```
 
 ---
@@ -92,14 +98,28 @@ All bindings use the **Super** key (Windows/Cmd key).
 | `Super + Shift + Q` | Close focused window |
 | `Super + Shift + K` | Kill focused window |
 | `Super + {H,J,K,L}` | Focus window (vim directions) |
-| `Super + Shift + {H,J,K,L}` | Move window |
-| `Super + Ctrl + {H,J,K,L}` | Resize window |
+| `Super + Shift + {H,J,K,L}` | Swap window |
+| `Alt + Tab / Alt + Shift + Tab` | Cycle windows forward/back |
+| `Super + [ / ]` | Focus prev/next desktop |
+| `Super + grave / Tab` | Focus last node / last desktop |
+| `Super + {O,I}` | Focus older/newer in history |
+| `Super + {P,,,}` | Focus parent/first/second child |
+| `Super + {1-9}` | Switch to workspace |
+| `Super + Shift + {1-9}` | Move window to workspace |
+| `Super + T / Shift + T` | Set tiled / pseudo_tiled |
 | `Super + F` | Toggle fullscreen |
 | `Super + Shift + Space` | Toggle floating |
-| `Super + M` | Toggle monocle layout |
+| `Super + M` | Cycle desktop layout |
 | `Super + R` | Rotate node tree 90° |
-| `Super + {1–9}` | Switch to workspace |
-| `Super + Shift + {1–9}` | Move window to workspace |
+| `Super + Y` | Send newest marked to newest preselected |
+| `Super + G` | Swap with biggest window |
+| `Super + Ctrl + {H,J,K,L}` | Preselect direction |
+| `Super + Ctrl + {1-9}` | Preselect split ratio |
+| `Super + Ctrl + Space` | Cancel preselection |
+| `Super + Ctrl + {M,X,Y,Z}` | Toggle marked/locked/sticky/private |
+| `Super + Alt + {H,J,K,L}` | Expand window |
+| `Super + Alt + Shift + {H,J,K,L}` | Shrink window |
+| `Super + Arrow keys` | Move floating window |
 | `Super + Shift + R` | Restart bspwm |
 | `Super + Alt + Escape` | Quit bspwm |
 | `Super + Escape` | Reload sxhkd config |
@@ -141,6 +161,6 @@ After installing Axyl to disk:
 
 ## Changelog
 
-- **2026-08-18** — Both variants now build via Docker (no native Arch host required); added `Dockerfile.arch`; `build.sh` no longer requires `sudo`
-- **2026-08-17** — Added Artix/runit variant (`Dockerfile.artix`, `artixiso/` override layer); added screen locker (i3lock + xss-lock), volume/brightness OSD (dunstify), bluetooth (bluez + blueman), PDF viewer (zathura), image viewer (nsxiv), auto-mount (udiskie), blue light filter (redshift); switched to greetd autologin; switched audio stack to PipeWire; switched browser to qutebrowser; switched file manager to lf; added zsh + Oh My Zsh
+- **2026-08-18** — Restructured project: Dockerfiles moved to `docker/`, shared dotfiles promoted to top-level `skel/`, pacman config riced (Color, ILoveCandy, VerbosePkgLists); expanded keybindings (window cycling, desktop navigation, preselect, resize expand/shrink, floating move); `setup.sh` updated for Docker-based workflow; both variants build via Docker
+- **2026-08-17** — Added Artix/runit variant; screen locker, volume/brightness OSD, bluetooth, PDF/image viewers, auto-mount, blue light filter; switched to greetd, PipeWire, qutebrowser, lf, zsh + Oh My Zsh
 - **2026-08-15** — Initial release: bspwm + polybar + rofi + kitty + neovim + Claude color scheme
