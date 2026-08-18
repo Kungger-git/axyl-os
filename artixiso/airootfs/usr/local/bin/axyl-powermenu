@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-choice=$(printf '%s\n' '  Logout' '  Reboot' '  Shutdown' '  Sleep' | \
-    rofi -dmenu -p "Power" -i \
+LO=$'\uf2f5'
+RE=$'\uf021'
+SH=$'\uf011'
+SL=$'\uf186'
+
+span() { printf '<span font="Font Awesome 6 Free" weight="900">%s</span>  %s' "$1" "$2"; }
+
+choice=$(printf '%s\n' \
+    "$(span "$LO" 'Logout')" \
+    "$(span "$RE" 'Reboot')" \
+    "$(span "$SH" 'Shutdown')" \
+    "$(span "$SL" 'Sleep')" | \
+    rofi -dmenu -p "Power" -i -markup-rows \
     -theme-str 'window {width: 18em;} listview {lines: 4;}')
 
 case "$choice" in
-    *Logout)   bspc quit ;;
-    *Reboot)   loginctl reboot ;;
-    *Shutdown) loginctl poweroff ;;
-    *Sleep)    axyl-lock & sleep 0.5; loginctl suspend ;;
+    *Logout*)   bspc quit ;;
+    *Reboot*)   loginctl reboot ;;
+    *Shutdown*) loginctl poweroff ;;
+    *Sleep*)    axyl-lock & sleep 0.5; loginctl suspend ;;
 esac

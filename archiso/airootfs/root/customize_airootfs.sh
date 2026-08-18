@@ -59,6 +59,7 @@ sudo -Hu axyl xdg-user-dirs-update
 
 # ── Font cache ───────────────────────────────────────────────────────────────
 fc-cache -fv
+sudo -Hu axyl fc-cache -fv
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 pacman -Scc --noconfirm

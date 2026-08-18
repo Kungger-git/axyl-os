@@ -28,8 +28,6 @@ bspc config right_padding   0
 
 # ── Window rules ──────────────────────────────────────────────────────────────
 bspc rule -a mpv             state=floating rectangle=960x540+480+270
-bspc rule -a Pavucontrol     state=floating rectangle=700x400+590+340
-bspc rule -a Lxappearance    state=floating
 bspc rule -a flameshot       state=floating border=off
 bspc rule -a Blueman-manager state=floating rectangle=700x500+540+210
 
@@ -54,13 +52,7 @@ dunst &
  xss-lock -- /usr/local/bin/axyl-lock &) &
 
 
-# Open installer terminal on first launch only — try kitty, fall back to xterm
+# Open installer terminal on first launch only
 if [ ! -f "$HOME/.axyl-install-done" ]; then
-    if kitty --title "Axyl Installer" -e /usr/local/bin/axyl-install & sleep 1 && \
-       pgrep -x kitty > /dev/null; then
-        true
-    else
-        xterm -fa "Monospace" -fs 11 -title "Axyl Installer" \
-              -e /usr/local/bin/axyl-install &
-    fi
+    kitty --title "Axyl Installer" -e /usr/local/bin/axyl-install &
 fi
