@@ -43,6 +43,9 @@ git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git \
     /etc/skel/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting
 
 # ── Live user ────────────────────────────────────────────────────────────────
+for grp in wheel audio video input storage optical network; do
+    groupadd -f "$grp"
+done
 useradd -m -G wheel,audio,video,input,storage,optical,network -s /bin/zsh axyl
 echo "axyl:axyl" | chpasswd
 echo "root:toor"  | chpasswd
