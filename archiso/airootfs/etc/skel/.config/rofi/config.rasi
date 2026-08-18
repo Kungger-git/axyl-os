@@ -13,7 +13,7 @@ configuration {
 }
 
 * {
-    font:        "JetBrains Mono 11";
+    font:        "JetBrains Mono, Font Awesome 6 Free, Font Awesome 6 Brands 11";
     bg:          #1a1a2e;
     bg-alt:      #16213e;
     fg:          #e6e1d8;
@@ -53,7 +53,7 @@ inputbar {
 
 prompt {
     text-color: @accent;
-    font:       "JetBrains Mono Bold 11";
+    font:       "JetBrains Mono Bold, Font Awesome 6 Free, Font Awesome 6 Brands 11";
     padding:    0 6px 0 0;
 }
 

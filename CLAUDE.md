@@ -10,7 +10,7 @@ This file is the authoritative reference for all future Claude sessions in this 
 
 | Variant | Init system | UEFI bootloader | Build method |
 |---|---|---|---|
-| `arch` | systemd | systemd-boot | Native `mkarchiso` on Arch Linux (requires root) |
+| `arch` | systemd | systemd-boot | Docker (`Dockerfile.arch`), no root needed |
 | `artix` | runit | GRUB | Docker (`Dockerfile.artix`), no root needed |
 
 **Build command:** `./build.sh [arch|artix]` — defaults to `arch`.
@@ -235,20 +235,26 @@ bspwm uses `execv()` to run bspwmrc with its shebang (`#!/usr/bin/env bash`). If
 
 ## Build Requirements
 
-### Build-host packages (install with pacman on the Arch build machine)
+### Host requirement
+
+Both variants build inside Docker — no native Arch/Artix install required. The only host dependency is Docker with the daemon running.
+
+### Dockerfile.arch — build-host packages
+
+These are installed into the `archlinux:latest` Docker container:
 
 ```
 archiso          ← provides mkarchiso
-mkinitcpio       ← builds the initramfs
 dosfstools       ← mkfs.fat for the ESP partition
 e2fsprogs        ← mkfs.ext4
-libisoburn       ← xorriso, used by mkarchiso to create the ISO image
+libisoburn       ← xorriso, creates the ISO image
 squashfs-tools   ← mksquashfs for the rootfs image
 syslinux         ← BIOS bootloader generation
-git              ← used in customize_airootfs.sh to clone Oh My Zsh
+mkinitcpio       ← builds the initramfs
+git              ← customize_airootfs.sh clones Oh My Zsh
 ```
 
-**Not needed on build host:** grub (UEFI uses systemd-boot). Do NOT install grub on the build host expecting it to help — systemd-boot is handled entirely by mkarchiso.
+`systemd` (already in `archlinux:latest` base) provides `systemd-bootx64.efi`, which mkarchiso needs on the build host for the `uefi.systemd-boot` bootmode. `grub` is NOT needed.
 
 ### Network requirement during build
 
@@ -257,26 +263,20 @@ git              ← used in customize_airootfs.sh to clone Oh My Zsh
 - `https://github.com/zsh-users/zsh-autosuggestions.git` → `.oh-my-zsh/custom/plugins/zsh-autosuggestions`
 - `https://github.com/zsh-users/zsh-syntax-highlighting.git` → `.oh-my-zsh/custom/plugins/zsh-syntax-highlighting`
 
-The build host must have outbound HTTPS to GitHub. The arch-chroot environment inherits the host network, so DNS and TCP work transparently.
+The Docker container inherits host network, so DNS and TCP work transparently.
 
 ---
 
 ## Build Commands
 
 ```bash
-# Full clean build (uses build.sh wrapper)
-sudo bash build.sh
+# Arch variant (Docker, no sudo needed)
+./build.sh arch
 
-# Manual build
-sudo mkarchiso -v -w ./axyl-work -o ./axyl-out ./archiso/
+# Artix variant (Docker, no sudo needed)
+./build.sh artix
 
-# Clean work directory only (keep output)
-sudo rm -rf ./axyl-work
-
-# Full clean (remove work and output)
-sudo rm -rf ./axyl-work ./axyl-out
-
-# Flash to USB (build.sh output dir)
+# Flash to USB
 sudo bash flash.sh ./axyl-out/axyl-*.iso /dev/sdX
 
 # Test BIOS boot in QEMU
@@ -692,6 +692,6 @@ Run mentally after every edit session:
 [ ] Identify all new dependencies; add to packages.x86_64
 [ ] Edit or create the relevant files
 [ ] Verify file structure is still consistent
-[ ] Update README.md if any user-facing detail changed
+[ ] Update README.md — always; every task that changes behaviour, commands, files, or defaults must be reflected in README.md
 [ ] Mark all TODOs complete (or annotate blockers)
 ```

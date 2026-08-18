@@ -57,5 +57,8 @@ chown root:root /etc/sudoers.d/axyl
 
 sudo -Hu axyl xdg-user-dirs-update
 
+# ── Font cache ───────────────────────────────────────────────────────────────
+fc-cache -fv
+
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 paccache -r -k0 || true

@@ -78,5 +78,8 @@ chmod +x \
     /usr/local/bin/axyl-osd-volume \
     /usr/local/bin/axyl-osd-brightness
 
+# ── Font cache ───────────────────────────────────────────────────────────────
+fc-cache -fv
+
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 paccache -r -k0 || true
