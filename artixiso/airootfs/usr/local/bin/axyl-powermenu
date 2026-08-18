@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+choice=$(printf '%s\n' '  Logout' '  Reboot' '  Shutdown' '  Sleep' | \
+    rofi -dmenu -p "Power" -i \
+    -theme-str 'window {width: 18em;} listview {lines: 4;}')
+
+case "$choice" in
+    *Logout)   bspc quit ;;
+    *Reboot)   loginctl reboot ;;
+    *Shutdown) loginctl poweroff ;;
+    *Sleep)    axyl-lock & sleep 0.5; loginctl suspend ;;
+esac

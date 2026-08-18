@@ -6,7 +6,7 @@ linux-headers
 intel-ucode
 amd-ucode
 mkinitcpio
-artix-archiso
+mkinitcpio-archiso
 artix-keyring
 sudo
 dbus
@@ -141,8 +141,7 @@ procps-ng
 psmisc
 util-linux
 
-artix-install-scripts
-reflector
+arch-install-scripts
 parted
 gptfdisk
 dosfstools

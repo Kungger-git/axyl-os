@@ -42,6 +42,10 @@ QEMU_DEPS=(
     edk2-ovmf        # OVMF.fd — UEFI firmware for QEMU
 )
 
+# ── Optional: Docker (artix build variant) ────────────────────────────────────
+# The artix variant builds inside an Artix container — no Artix host required.
+# Docker must be installed and the daemon must be running before: ./build.sh artix
+
 # ── Update package databases ──────────────────────────────────────────────────
 info "Updating package databases..."
 pacman -Sy --noconfirm
@@ -86,6 +90,26 @@ if [[ "${QEMU_CHOICE,,}" == "y" ]]; then
     fi
 else
     note "Skipping QEMU packages"
+fi
+echo ""
+
+# ── Optional: Docker ──────────────────────────────────────────────────────────
+info "Docker (optional — required for: ./build.sh artix)..."
+echo -ne "${ACCENT}    Install Docker? [y/N]: ${RESET}"
+read -r -t 15 DOCKER_CHOICE || DOCKER_CHOICE="n"
+
+if [[ "${DOCKER_CHOICE,,}" == "y" ]]; then
+    if pacman -Q docker &>/dev/null; then
+        ok "docker already installed"
+    else
+        pacman -S --noconfirm --needed docker
+        ok "docker installed"
+    fi
+    systemctl enable --now docker.service
+    note "Add your user to the docker group to run without sudo:"
+    note "  sudo usermod -aG docker \$USER  (then log out and back in)"
+else
+    note "Skipping Docker"
 fi
 echo ""
 

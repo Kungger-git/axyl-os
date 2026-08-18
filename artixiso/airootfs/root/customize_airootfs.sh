@@ -18,6 +18,18 @@ cat > /etc/hosts <<EOF
 127.0.1.1   axyl.localdomain axyl
 EOF
 
+# ── Initramfs ────────────────────────────────────────────────────────────────
+# The linux.preset (modified by mkinitcpio-archiso) loads the 'archiso' drop-in.
+# Artix's mkinitcpio generates a 'Configuration: archiso' section header in the
+# merged temp file — valid in its new INI format but not sourceable as bash,
+# so the pacman hook (step 15/25) always fails and produces no initramfs-linux.img.
+# Bypass the preset entirely: call mkinitcpio with explicit -c/-k/-g flags so
+# no preset is read and no drop-in is loaded.
+mkinitcpio \
+    -c /etc/mkinitcpio.conf \
+    -k /boot/vmlinuz-linux \
+    -g /boot/initramfs-linux.img
+
 # ── runit services ───────────────────────────────────────────────────────────
 # Each *-runit package installs run scripts in /etc/runit/sv/<service>/.
 # Enable by symlinking into runsvdir/default — runit starts all on boot.
@@ -41,6 +53,11 @@ git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git \
     /etc/skel/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting
 
 # ── Live user ────────────────────────────────────────────────────────────────
+# Artix esysusers hooks may not have run inside the mkarchiso chroot, so some
+# groups (storage, optical) might not exist yet. -f = ignore if already exists.
+for grp in wheel audio video input storage optical network; do
+    groupadd -f "$grp"
+done
 useradd -m -G wheel,audio,video,input,storage,optical,network -s /bin/zsh axyl
 echo "axyl:axyl" | chpasswd
 echo "root:toor"  | chpasswd

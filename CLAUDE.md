@@ -1,4 +1,4 @@
-# CLAUDE.md — Axyl Linux ISO (bspwm / Arch)
+# CLAUDE.md — Axyl Linux ISO (bspwm / Arch + Artix)
 
 This file is the authoritative reference for all future Claude sessions in this repository. Follow every rule here precisely and consistently.
 
@@ -6,13 +6,22 @@ This file is the authoritative reference for all future Claude sessions in this 
 
 ## Project Overview
 
-**Axyl Linux** is a custom Arch Linux live ISO built with `archiso`. It boots directly into a fully configured bspwm desktop with a dark navy/coral "Claude" color scheme, greetd autologin, Oh My Zsh, polybar, and an interactive installer terminal. The ISO supports both BIOS (syslinux) and UEFI (systemd-boot) boot.
+**Axyl Linux** is a custom Linux live ISO built with `archiso`. It boots directly into a fully configured bspwm desktop with a dark navy/coral "Claude" color scheme, greetd autologin, Oh My Zsh, polybar, and an interactive installer terminal. Two variants are supported:
 
-**Editing environment:** Windows (VS Code / OneDrive). **Build environment:** separate Arch Linux machine. Files are edited on Windows and the ISO is built on Arch Linux with `mkarchiso`.
+| Variant | Init system | UEFI bootloader | Build method |
+|---|---|---|---|
+| `arch` | systemd | systemd-boot | Native `mkarchiso` on Arch Linux (requires root) |
+| `artix` | runit | GRUB | Docker (`Dockerfile.artix`), no root needed |
+
+**Build command:** `./build.sh [arch|artix]` — defaults to `arch`.
+
+**Editing environment:** Windows (VS Code / OneDrive). **Build environment:** separate Arch Linux machine (arch variant) or any Linux machine with Docker (artix variant). Files are edited on Windows.
 
 ---
 
 ## Repository Layout
+
+The `archiso/` tree is the base for both variants. `artixiso/` is an **override layer**: `build.sh artix` merges with `cp -rT archiso/ tmp/ && cp -rT artixiso/ tmp/`, so every file in `artixiso/` silently replaces its counterpart in `archiso/`. Files absent from `artixiso/` are taken verbatim from `archiso/`.
 
 ```
 archiso/
@@ -64,6 +73,22 @@ archiso/
 build.sh                             ← wrapper: cleans work/out dirs, calls mkarchiso
 flash.sh                             ← writes ISO to USB with dd (USB drives only)
 README.md                            ← user-facing documentation
+Dockerfile.artix                     ← Docker build environment for the artix variant
+artixiso/                            ← override layer: files here win over archiso/
+  profiledef.sh                      ← Artix overrides (runit label, GRUB bootmode)
+  pacman.conf                        ← Artix repos + Arch [extra] for missing packages
+  packages.x86_64                    ← Artix package list (runit packages, no systemd)
+  grub/
+    grub.cfg                         ← GRUB UEFI menu (BIOS uses archiso/syslinux/)
+  airootfs/
+    etc/
+      mkinitcpio.conf                ← MODULES includes isofs (required for Artix)
+    root/
+      customize_airootfs.sh          ← runit services, mkinitcpio preset bypass
+    usr/local/bin/
+      axyl-install                   ← Artix installer guide (pacstrap/genfstab/arch-chroot)
+      axyl-powermenu                 ← loginctl reboot/poweroff/suspend (NOT systemctl)
+      axyl-setup                     ← runit greetd enablement (NOT systemctl)
 ```
 
 ---
@@ -109,6 +134,7 @@ declare -A file_permissions=(
 
 ### mkinitcpio.conf — Current Values
 
+**Arch variant** (`archiso/airootfs/etc/mkinitcpio.conf`):
 ```
 MODULES=(loop squashfs overlay)
 BINARIES=()
@@ -117,12 +143,23 @@ HOOKS=(base udev modconf archiso archiso_loop_mnt kms block filesystems keyboard
 COMPRESSION="xz"
 ```
 
+**Artix variant** (`artixiso/airootfs/etc/mkinitcpio.conf`) — identical except MODULES:
+```
+MODULES=(loop squashfs overlay isofs)
+BINARIES=()
+FILES=()
+HOOKS=(base udev modconf archiso archiso_loop_mnt kms block filesystems keyboard)
+COMPRESSION="xz"
+```
+
+**Why `isofs` is required for Artix but not Arch:** On Arch, the `mkinitcpio-archiso` install hook calls `add_module 'isofs'` internally. On Artix, the live system uses an older `mkinitcpio` from `[world]` that does not always execute Arch-format install hooks completely. Without `isofs` in the initramfs, the `archiso` hook can find the CD-ROM device by label but cannot mount the ISO 9660 filesystem — resulting in kernel panic `VFS: Unable to mount root fs on unknown-block(0,0)`.
+
 **Hook rules (non-negotiable):**
 - `archiso` and `archiso_loop_mnt` come from the **`mkinitcpio-archiso`** package (not `archiso`). Always have `mkinitcpio-archiso` in `packages.x86_64`.
 - `archiso_shutdown` was **removed** from `mkinitcpio-archiso` in the current version. Never add it.
 - `archiso_kms` was **deprecated**. Use the standard `kms` hook instead.
 - Hook order matters: `archiso` and `archiso_loop_mnt` must appear before `block`.
-- `MODULES=(loop squashfs overlay)` — all three are required for the live squashfs to mount.
+- `MODULES=(loop squashfs overlay)` — all three are required for the live squashfs to mount. Artix also requires `isofs` (see above).
 - This file is at `airootfs/etc/mkinitcpio.conf` (a direct config, not a drop-in). It takes precedence over any drop-in in `mkinitcpio.conf.d/`.
 
 ### Bootloaders
@@ -328,6 +365,175 @@ qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
 
 ---
 
+---
+
+## Artix Variant — Build System
+
+### Overview
+
+The artix variant builds inside Docker so it does not require an Artix host. `build.sh artix` always rebuilds the Docker image from scratch (`docker rmi` then `docker build`) to pick up any `Dockerfile.artix` changes, then merges `archiso/` + `artixiso/` into a temp profile and runs `mkarchiso` inside the container.
+
+### Dockerfile.artix — Required Build-Host Packages
+
+These are installed into the Docker container (the build host), not the live system:
+
+```
+archiso             ← provides mkarchiso (from Arch [extra])
+arch-install-scripts ← provides genfstab (from Arch [extra])
+dosfstools          ← mkfs.fat for the ESP partition
+e2fsprogs           ← mkfs.ext4
+libisoburn          ← xorriso, creates the ISO image
+squashfs-tools      ← mksquashfs for the rootfs image
+syslinux            ← BIOS bootloader generation
+grub                ← grub-mkstandalone for uefi-x64.grub.esp UEFI image
+mkinitcpio          ← builds the initramfs (from Arch [extra])
+git                 ← customize_airootfs.sh clones Oh My Zsh
+```
+
+**Critical:** `grub` MUST be in the Dockerfile. The `uefi-x64.grub.esp` bootmode calls `grub-mkstandalone` on the build host to create the EFI image. Without `grub` on the build host, UEFI setup fails.
+
+The Arch `[extra]` repo is added to the container's `/etc/pacman.conf` with `SigLevel = Never`. The section **must be named `[extra]`** — pacman fetches `<section-name>.db` from the mirror server; a custom name like `[arch-extra]` would request a non-existent `arch-extra.db` and 404.
+
+### artixiso/pacman.conf — Repo Structure
+
+```ini
+[system]   ← Artix core (≈ Arch core, rebuilt without systemd)
+[world]    ← Artix extra (≈ Arch extra, rebuilt without systemd)
+[galaxy]   ← Artix community
+
+[extra]    ← Arch's extra repo — for mkinitcpio-archiso and arch-install-scripts
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
+SigLevel = Never
+```
+
+All Artix repos use `Include = /etc/pacman.d/mirrorlist` — the container's native mirrorlist from the `artixlinux/artixlinux:base-runit` Docker image. Do NOT replace or overwrite this mirrorlist; it is the same one that successfully downloads packages in the `docker build` step.
+
+**`[artix]` repo is NOT present** — it is an internal Artix repo that is not externally mirrored. All packages needed (including `artix-keyring`) are in `[system]`.
+
+### artixiso/packages.x86_64 — Key Differences from Arch
+
+| Arch package | Artix equivalent | Notes |
+|---|---|---|
+| `archlinux-keyring` | `artix-keyring` | Artix uses its own GPG keyring |
+| (none) | `dbus-runit`, `elogind-runit`, `networkmanager-runit`, `greetd-runit`, `acpid-runit`, `bluez-runit` | Every daemon needs its `-runit` companion |
+| `systemd` (implicit) | `elogind`, `elogind-runit` | Seat/session management; provides `loginctl` |
+| `reflector` | *(absent)* | Reflector uses Arch-mirror API only; non-functional on Artix |
+| `artix-install-scripts` | `arch-install-scripts` | `artix-install-scripts` does NOT exist in public Artix repos |
+| `archinstall` | *(absent)* | Arch-specific guided installer; not available for Artix |
+
+**runit service pairs** — every daemon enabled in `customize_airootfs.sh` needs both packages:
+
+| Service name | Base package | runit package |
+|---|---|---|
+| `dbus` | `dbus` | `dbus-runit` |
+| `elogind` | `elogind` | `elogind-runit` |
+| `NetworkManager` | `networkmanager` | `networkmanager-runit` |
+| `greetd` | `greetd` | `greetd-runit` |
+| `acpid` | `acpid` | `acpid-runit` |
+| `bluetoothd` | `bluez` | `bluez-runit` |
+
+### artixiso/profiledef.sh — Key Differences
+
+```bash
+iso_label="AXYL_ARTIX_$(date +%Y%m)"   # distinct label from the Arch variant
+bootmodes=('bios.syslinux' 'uefi-x64.grub.esp')  # GRUB, not systemd-boot
+```
+
+`uefi.systemd-boot` MUST NOT be used — it requires `systemd-bootx64.efi` from the `systemd` package, which is not installed on Artix. The build fails with `install: cannot stat '.../systemd-bootx64.efi': No such file or directory`.
+
+### artixiso/grub/grub.cfg — GRUB UEFI Config
+
+mkarchiso's `uefi-x64.grub.esp` bootmode substitutes `%INSTALL_DIR%` and `%ARCHISO_LABEL%` in this file before embedding it with `grub-mkstandalone`.
+
+**Critical path rule:** microcode images are NOT in the `x86_64` subdirectory:
+
+```
+# CORRECT
+initrd /%INSTALL_DIR%/boot/intel-ucode.img /%INSTALL_DIR%/boot/amd-ucode.img \
+       /%INSTALL_DIR%/boot/x86_64/initramfs-linux.img
+
+# WRONG — causes "file not found" at GRUB boot
+initrd /%INSTALL_DIR%/boot/x86_64/intel-ucode.img ...
+```
+
+The kernel and initramfs ARE in `x86_64/`. The ucode images are directly in `boot/`.
+
+**Font loading:** `loadfont unicode` must appear before `terminal_output gfxterm`. Without it, GRUB renders box-drawing characters (borders) as `?`.
+
+### artixiso/airootfs/root/customize_airootfs.sh — Execution Order
+
+1. `pacman-key --init && pacman-key --populate artix` — MUST be first; uses Artix keyring
+2. Locale, timezone, hostname, /etc/hosts
+3. **mkinitcpio initramfs rebuild** — MUST be early (see below)
+4. runit service symlinks via `ln -s /etc/runit/sv/<svc> /etc/runit/runsvdir/default/`
+5. Git clone Oh My Zsh — MUST be before `useradd -m`
+6. `groupadd -f` for wheel/audio/video/input/storage/optical/network — MUST be before `useradd`
+7. `useradd -m -G wheel,audio,video,input,storage,optical,network -s /bin/zsh axyl`
+8. Passwords, sudoers, xdg-user-dirs-update, chmod on scripts
+9. `paccache -r -k0`
+
+**runit service enablement** — NOT `systemctl enable`. Pattern:
+```bash
+for svc in dbus elogind NetworkManager greetd acpid bluetoothd; do
+    [ -d "/etc/runit/sv/$svc" ] && ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
+done
+```
+
+**groupadd -f is required** — Artix's `esysusers` hook may not create `storage` and `optical` groups before `useradd` runs inside the mkarchiso chroot. `groupadd -f` creates them if absent; `-f` makes it a no-op if they already exist.
+
+### mkinitcpio Preset Bypass (Artix-specific)
+
+`mkinitcpio-archiso` (Arch [extra]) installs or modifies `/etc/mkinitcpio.d/linux.preset` to load a drop-in named `archiso` from `mkinitcpio.conf.d/`. Artix's `mkinitcpio` (from `[world]`, older version) generates a `Configuration: archiso` INI-format section header in the merged temp file, then tries to source it as bash — resulting in:
+
+```
+/tmp/mkinitcpio.XXXXXX: line 5: Configuration: command not found
+==> ERROR: Failed to read configuration
+```
+
+This fails as a pacman hook (step 15/25 of the package install phase). mkarchiso continues but no `initramfs-linux.img` is created.
+
+**Fix:** In `customize_airootfs.sh`, call mkinitcpio directly with explicit flags — no preset, no drop-in:
+
+```bash
+mkinitcpio \
+    -c /etc/mkinitcpio.conf \
+    -k /boot/vmlinuz-linux \
+    -g /boot/initramfs-linux.img
+```
+
+This runs AFTER package installation (inside `customize_airootfs.sh`) and produces the initramfs that mkarchiso copies into the ISO. The step-15 failure is permanent and expected — the `customize_airootfs.sh` rebuild is the authoritative initramfs.
+
+### Power Commands — loginctl, not systemctl
+
+Artix does not install `systemd`. Any script calling `systemctl reboot`, `systemctl poweroff`, or `systemctl suspend` will fail with `command not found`. Use `loginctl` instead (provided by `elogind`):
+
+| Old (Arch) | New (Artix) |
+|---|---|
+| `systemctl reboot` | `loginctl reboot` |
+| `systemctl poweroff` | `loginctl poweroff` |
+| `systemctl suspend` | `loginctl suspend` |
+| `systemctl enable svc` | `ln -sf /etc/runit/sv/svc /etc/runit/runsvdir/default/` |
+
+Every `archiso/airootfs/usr/local/bin/` script that calls `systemctl` MUST have an override in `artixiso/airootfs/usr/local/bin/`. Currently: `axyl-powermenu`, `axyl-setup`.
+
+### Artix Build Commands
+
+```bash
+# Full build (Docker, no sudo needed)
+./build.sh artix
+
+# Docker image is always rebuilt — no cache reuse
+
+# Test BIOS boot in QEMU
+qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G -boot d
+
+# Test UEFI boot in QEMU (requires edk2-ovmf on build host)
+qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
+  -bios /usr/share/ovmf/x64/OVMF.fd
+```
+
+---
+
 ## Known Pitfalls
 
 These caused real build or boot failures. Check here before debugging.
@@ -367,6 +573,19 @@ These caused real build or boot failures. Check here before debugging.
 | `command not found: export` on line 1 of .zshrc | UTF-8 BOM prepended — zsh sees BOM+`export` as unknown command | Strip BOM from .zshrc (and any dotfile written by PowerShell); use `[System.Text.UTF8Encoding]::new($false)` for all writes |
 | No keybindings after login | sxhkd not started | bspwmrc not running (execute bit missing) |
 | Oh My Zsh not found at login | .oh-my-zsh not in /home/axyl/ | Git clone must happen BEFORE useradd -m in customize_airootfs.sh |
+
+### Artix build errors
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Configuration: command not found` during pacman hook (step 15/25) | Artix's mkinitcpio (from `[world]`) generates `Configuration: archiso` INI section header in merged temp file; bash can't source it | In `customize_airootfs.sh`, rebuild initramfs with `mkinitcpio -c /etc/mkinitcpio.conf -k /boot/vmlinuz-linux -g /boot/initramfs-linux.img` — bypasses preset and drop-in entirely |
+| `install: cannot stat '.../systemd-bootx64.efi': No such file or directory` | `uefi.systemd-boot` bootmode requires systemd; Artix doesn't have it | Set `bootmodes=('bios.syslinux' 'uefi-x64.grub.esp')` in `artixiso/profiledef.sh`; add `grub` to `Dockerfile.artix` |
+| `useradd: group 'storage' does not exist` | Artix `esysusers` hooks don't run inside mkarchiso chroot | Add `groupadd -f` loop for wheel/audio/video/input/storage/optical/network before `useradd` |
+| `KERNEL PANIC! VFS: Unable to mount root fs on unknown-block(0,0)` | `isofs` module absent from initramfs; archiso hook finds CD-ROM but can't mount ISO 9660 | Add `isofs` to `MODULES=` in `artixiso/airootfs/etc/mkinitcpio.conf` |
+| GRUB borders rendered as `?` | `terminal_output gfxterm` set before loading unicode font | Wrap gfxmode/gfxterm in `if loadfont unicode; then` block |
+| GRUB error: `file /arch/boot/x86_64/intel-ucode.img not found` | Microcode images are NOT in the `x86_64` subdirectory | Use `/%INSTALL_DIR%/boot/intel-ucode.img` (no `x86_64`); only vmlinuz and initramfs use the `x86_64/` subdir |
+| `systemctl: command not found` in running Artix system | Artix has no systemd | Use `loginctl reboot/poweroff/suspend` instead; enable services with `ln -s /etc/runit/sv/<svc> /etc/runit/runsvdir/default/` |
+| Service not starting on boot in installed Artix system | runit service symlink missing | Each daemon needs its `-runit` companion package AND a symlink in `/etc/runit/runsvdir/default/` |
 
 ### Font Awesome icons
 
@@ -456,9 +675,12 @@ Run mentally after every edit session:
 - Every script in `airootfs/usr/local/bin/` has an entry in `file_permissions` at 0:0:755.
 - `bspwmrc` and `launch.sh` have entries in `file_permissions` at 0:0:755.
 - `mkinitcpio.conf` HOOKS contain no deprecated or removed hook names.
-- `profiledef.sh` bootmodes use systemd-boot for UEFI (not grub).
+- **Arch variant:** `profiledef.sh` bootmodes use `uefi.systemd-boot` for UEFI.
+- **Artix variant:** `artixiso/profiledef.sh` bootmodes use `uefi-x64.grub.esp`; `artixiso/grub/grub.cfg` exists; ucode initrd paths use `/%INSTALL_DIR%/boot/intel-ucode.img` (NO `x86_64` subdir).
 - `greetd/config.toml` has `[initial_session]` for autologin.
 - Any new wallpaper image: extension in `bspwmrc` feh call matches the actual file extension.
+- **Artix variant:** Any script in `archiso/airootfs/usr/local/bin/` that calls `systemctl` MUST have an override in `artixiso/airootfs/usr/local/bin/` that uses `loginctl` instead. Currently overridden: `axyl-powermenu`, `axyl-setup`.
+- **Artix variant:** Every daemon enabled in `customize_airootfs.sh` must have both a base package AND a `-runit` companion package in `artixiso/packages.x86_64`.
 
 ---
 
@@ -466,6 +688,7 @@ Run mentally after every edit session:
 
 ```
 [ ] Write TODOs before starting
+[ ] Read the codebase and identify files that are no longer needed; delete them
 [ ] Identify all new dependencies; add to packages.x86_64
 [ ] Edit or create the relevant files
 [ ] Verify file structure is still consistent
