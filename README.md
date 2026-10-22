@@ -49,18 +49,85 @@ Internal disks are never offered.
 
 ### Test in QEMU
 
-```bash
-# BIOS
-qemu-system-x86_64 -cdrom axyl-out/arch/axyl-arch-*.iso -m 2G -boot d
+Hyprland needs a DRM/EGL-capable virtual GPU. Use `virtio-vga-gl` with an
+OpenGL display when available; otherwise use `-vga virtio` and a GL-capable
+display.
 
-# UEFI (requires edk2-ovmf)
-qemu-system-x86_64 -cdrom axyl-out/arch/axyl-arch-*.iso -m 2G \
-  -bios /usr/share/ovmf/x64/OVMF.fd
+The examples below use a disposable qcow2 disk. Never point `--disk` at a host
+disk: inside QEMU the test disk is `/dev/vda`.
+
+```bash
+ISO=axyl-out/arch/axyl-arch-*.iso   # or axyl-out/artix/axyl-artix-*.iso
+DISK="$HOME/axyl-test.qcow2"
+qemu-img create -f qcow2 "$DISK" 20G
 ```
 
-Hyprland needs a DRM/EGL-capable virtual GPU. For a graphical QEMU test use
-`-vga virtio` (and an OpenGL display such as `-display gtk,gl=on`), rather than
-plain VGA.
+Boot the live ISO in BIOS mode:
+
+```bash
+qemu-system-x86_64 \
+  -machine q35 -enable-kvm -cpu host -smp 2 -m 2048 \
+  -device virtio-vga-gl -vga none -display gtk,gl=on \
+  -nic user,model=virtio-net-pci \
+  -boot order=d,menu=off \
+  -drive file="$DISK",if=virtio,format=qcow2 \
+  -cdrom "$ISO"
+```
+
+UEFI live boot (requires `edk2-ovmf`):
+
+```bash
+cp /usr/share/ovmf/x64/OVMF_VARS.4m.fd /tmp/axyl-OVMF_VARS.fd
+
+qemu-system-x86_64 \
+  -machine q35 -enable-kvm -cpu host -smp 2 -m 2048 \
+  -device virtio-vga-gl -vga none -display gtk,gl=on \
+  -nic user,model=virtio-net-pci \
+  -drive if=pflash,format=raw,readonly=on,file=/usr/share/ovmf/x64/OVMF_CODE.4m.fd \
+  -drive if=pflash,format=raw,file=/tmp/axyl-OVMF_VARS.fd \
+  -boot order=d,menu=off \
+  -cdrom "$ISO"
+```
+
+The live session autologs in as `axyl` (password `axyl`; `root` is `toor`).
+Check the live desktop:
+
+```bash
+pactl info
+command -v brave dolphin nvim
+```
+
+Install to the disposable disk from inside the live session:
+
+```bash
+sudo axyl-install --auto --disk /dev/vda --yes --password axyl
+```
+
+The installer must finish with `ok Installation complete.` If it reports that
+the target is still mounted and a lazy unmount was requested, shut down the VM
+and boot the installed disk once before using it.
+
+Boot the installed system without the ISO attached:
+
+```bash
+qemu-system-x86_64 \
+  -machine q35 -enable-kvm -cpu host -smp 2 -m 2048 \
+  -device virtio-vga-gl -vga none -display gtk,gl=on \
+  -nic user,model=virtio-net-pci \
+  -boot order=c,menu=off \
+  -drive file="$DISK",if=virtio,format=qcow2
+```
+
+For a UEFI install, keep the two `-drive if=pflash` options from the UEFI live
+command and boot the installed disk with `-boot order=c`.
+
+The installed system starts greetd on tty7. Log in as `axyl` with the password
+passed to the installer, then verify Hyprland, Waybar, audio, Brave, Dolphin,
+and Neovim. `Ctrl+Alt+F2` should show a separate text login.
+
+Test both `arch` and `artix` ISOs. Audio startup is systemd-user based on Arch
+and uses the manual PipeWire branch on Artix; in both cases `pactl info` should
+report `/run/user/1000/pulse/native`.
 
 ---
 
