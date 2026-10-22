@@ -1,0 +1,16 @@
+# ~/.config/mako/config
+# Notification daemon styling. Colours mirror conf/palette.lua.
+
+font=monospace 10
+background-color=#141414ee
+text-color=#eeeeee
+border-color=#484848
+border-size=1
+border-radius=8
+padding=10
+margin=8
+width=340
+height=140
+default-timeout=5000
+max-visible=3
+anchor=top-right

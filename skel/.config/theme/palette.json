@@ -1,0 +1,30 @@
+{
+  "_comment": "opencode theme 'opencode' (dark variant), vendored from opencode and mapped by ~/.config/theme/themes.py. Source of truth for render.py",
+  "name": "opencode",
+  "bg": "#0a0a0a",
+  "bg_panel": "#141414",
+  "bg_elem": "#1e1e1e",
+  "overlay": "#4e4e4e",
+  "border": "#484848",
+  "scrollbar": "#5a5a5a",
+  "fg": "#eeeeee",
+  "fg_muted": "#808080",
+  "accent": "#fab283",
+  "secondary": "#5c9cf5",
+  "accent_alt": "#9d7cd8",
+  "red": "#e06c75",
+  "green": "#7fd88f",
+  "yellow": "#f8c17b",
+  "orange": "#f5a742",
+  "cyan": "#56b6c2",
+  "bright": {
+    "red": "#e9989e",
+    "green": "#a5e4b1",
+    "yellow": "#fad4a3",
+    "blue": "#8dbaf8",
+    "purple": "#baa3e4",
+    "cyan": "#89ccd4",
+    "white": "#ffffff",
+    "black": "#4e4e4e"
+  }
+}

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Start a Hyprland/Wayland session from greetd (live and installed systems).
+set -euo pipefail
+
+# greetd normally sets this, but keep a fallback for direct TTY launches.
+# Use an existing per-user runtime directory when possible; otherwise create a
+# private temporary one instead of relying on write access to /run/user.
+if [[ -z "${XDG_RUNTIME_DIR:-}" || ! -d "${XDG_RUNTIME_DIR:-/nonexistent}" ]]; then
+    runtime_dir="/run/user/$(id -u)"
+    if [[ -d "$runtime_dir" ]]; then
+        export XDG_RUNTIME_DIR="$runtime_dir"
+    else
+        export XDG_RUNTIME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/xdg-runtime-$(id -u).XXXXXX")"
+    fi
+fi
+
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=Hyprland
+export XDG_CURRENT_DESKTOP=Hyprland
+
+# Qt/Wayland and XWayland fallback for apps that still need X11.
+export QT_QPA_PLATFORM="wayland;xcb"
+export QT_QPA_PLATFORMTHEME=qt6ct
+export QT_STYLE_OVERRIDE=kvantum
+
+# Browser / Electron Wayland hints.
+export MOZ_ENABLE_WAYLAND=1
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+
+# QEMU and other virtual GPUs often lack a usable hardware cursor. Use
+# wlroots' software renderer when the VM has no virgl/EGL acceleration.
+if grep -qiE 'qemu|kvm|virtualbox|vmware' \
+        /sys/class/dmi/id/product_name /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+    export WLR_NO_HARDWARE_CURSORS=1
+    # Only force software rendering when the VM exposes no render node. A
+    # virtio-vga-gl/EGL guest has /dev/dri/renderD128 and must keep GL.
+    if [[ ! -e /dev/dri/renderD128 ]]; then
+        export WLR_RENDERER="${WLR_RENDERER:-pixman}"
+    fi
+fi
+
+# Make sure the per-user theme matches the user's real home directory.
+if [[ -x "$HOME/.config/theme/render.py" ]]; then
+    "$HOME/.config/theme/render.py" || true
+fi
+
+exec dbus-run-session start-hyprland

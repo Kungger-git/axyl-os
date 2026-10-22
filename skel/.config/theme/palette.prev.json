@@ -1,0 +1,30 @@
+{
+  "_comment": "opencode theme 'gruvbox' (dark variant), vendored from opencode and mapped by ~/.config/theme/themes.py. Source of truth for render.py",
+  "name": "gruvbox",
+  "bg": "#282828",
+  "bg_panel": "#3c3836",
+  "bg_elem": "#504945",
+  "overlay": "#625e51",
+  "border": "#665c54",
+  "scrollbar": "#6c6758",
+  "fg": "#ebdbb2",
+  "fg_muted": "#928374",
+  "accent": "#83a598",
+  "secondary": "#d3869b",
+  "accent_alt": "#8ec07c",
+  "red": "#fb4934",
+  "green": "#b8bb26",
+  "yellow": "#fea65e",
+  "orange": "#fe8019",
+  "cyan": "#fabd2f",
+  "bright": {
+    "red": "#fc8071",
+    "green": "#cdcf67",
+    "yellow": "#fec18e",
+    "blue": "#e0aab9",
+    "purple": "#b0d3a3",
+    "cyan": "#fcd16d",
+    "white": "#ffffff",
+    "black": "#625e51"
+  }
+}

@@ -1,0 +1,54 @@
+// ~/.config/waybar/config  (JSONC: comments are allowed)
+{
+  "layer": "top",
+  "position": "top",
+  "height": 26,
+  "reload_style_on_change": true,
+
+  "modules-left": ["hyprland/workspaces"],
+  "modules-center": ["clock"],
+  "modules-right": ["backlight", "pulseaudio", "network", "battery"],
+
+  "hyprland/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+      "1": "", "2": "", "3": "", "4": "", "5": "",
+      "6": "", "7": "", "8": "", "9": "", "10": ""
+    }
+  },
+
+  "clock": {
+    "format": "{:%a %b %d, %H:%M:%S}",
+    "tooltip-format": "<big>{:%Y-%m-%d %H:%M:%S}</big>",
+    "interval": 1
+  },
+
+
+
+  // Replaces custom/brightness (which spawned brightnessctl + grep every second)
+  "backlight": {
+    "format": "☀️ {percent}%",
+    "tooltip": false
+  },
+
+  "pulseaudio": {
+    "format": " {volume}%",
+    "format-muted": " MUTE",
+    "max-volume": 100
+  },
+
+  "network": {
+    "format-wifi": " {essid}",
+    "format-ethernet": " {ipaddr}",
+    "format-disconnected": ""
+  },
+
+  "battery": {
+    "format": "{icon} {capacity}%",
+    "format-icons": ["", "", "", "", ""],
+    "states": {
+      "warning": 20,
+      "critical": 10
+    }
+  }
+}

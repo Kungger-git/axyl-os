@@ -1,32 +1,23 @@
 # Axyl Linux
 
-Axyl is a custom Linux live/install ISO built with `archiso`. It boots directly into a fully configured **bspwm** desktop themed with the Claude color scheme — dark navy backgrounds (`#1a1a2e`) and warm coral accents (`#d97757`). On first boot a terminal opens automatically, guiding the user through installation. Everything from the window manager to the editor to the shell prompt is pre-configured and ready to use.
+Axyl is a custom Linux live/install ISO built with `archiso`. It boots into a
+pre-configured **Hyprland / Wayland** desktop using the opencode dark palette
+(`#0a0a0a` background, `#fab283` accent). The live session starts as user
+`axyl`; the installer creates a normal account with a real password and a
+greeter on the installed system.
 
 Two variants are available:
 
-| Variant | Init system | UEFI bootloader |
-|---|---|---|
-| `arch` | systemd | systemd-boot |
-| `artix` | runit | GRUB |
+| Variant | Init system | UEFI bootloader | Output |
+|---|---|---|---|
+| `arch` | systemd | systemd-boot | `axyl-out/arch/axyl-arch-*.iso` |
+| `artix` | runit | GRUB | `axyl-out/artix/axyl-artix-*.iso` |
 
-Both build inside Docker — no native Arch or Artix host required.
-
----
-
-## First-Time Setup
-
-Run once on the build machine to install Docker and optionally QEMU:
-
-```bash
-chmod +x setup.sh
-sudo ./setup.sh
-```
-
-Installs: `docker`, `docker-buildx` (eliminates legacy builder warning). Optionally installs `qemu-system-x86` + `edk2-ovmf` for ISO testing.
+Both build inside Docker; no native Arch or Artix host is required.
 
 ---
 
-## How to Build
+## Build
 
 ```bash
 # Arch variant (systemd)
@@ -36,131 +27,151 @@ Installs: `docker`, `docker-buildx` (eliminates legacy builder warning). Optiona
 ./build.sh artix
 ```
 
-The script rebuilds the Docker builder image from scratch on every run, then runs `mkarchiso` inside the container. The finished ISO is written to `./axyl-out/`.
+The first build also builds a vendored `brave-bin` package from the AUR inside a
+throwaway Arch container. Brave is AUR-only, so the ISO itself never needs AUR
+access. Built ISOs, `SHA256SUMS`, and a small manifest are written under
+`axyl-out/<variant>/`.
+
+The builder images are rebuilt on each run. `mkarchiso` runs privileged inside
+Docker to create the loop-mounted ISO.
 
 ### Flash to USB
 
 ```bash
-sudo bash flash.sh ./axyl-out/axyl-*.iso /dev/sdX
+sudo ./flash.sh
+# or choose an ISO explicitly:
+sudo ./flash.sh axyl-out/arch/axyl-arch-*.iso
 ```
+
+`flash.sh` lists **USB devices only**, excludes the live/root disk, verifies the
+`.sha256` file when present, and requires you to type `FLASH` before writing.
+Internal disks are never offered.
 
 ### Test in QEMU
 
 ```bash
 # BIOS
-qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G -boot d
+qemu-system-x86_64 -cdrom axyl-out/arch/axyl-arch-*.iso -m 2G -boot d
 
 # UEFI (requires edk2-ovmf)
-qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
+qemu-system-x86_64 -cdrom axyl-out/arch/axyl-arch-*.iso -m 2G \
   -bios /usr/share/ovmf/x64/OVMF.fd
 ```
 
----
-
-## Key Features
-
-- **Window manager**: bspwm with 9 workspaces, 2px borders, 8px gaps
-- **Color scheme**: Claude palette — `#1a1a2e` background, `#d97757` accent, `#e6e1d8` foreground
-- **Login**: greetd with X11 autologin as `axyl`
-- **Bar**: polybar — workspaces, window title, CPU, memory, volume, network, clock
-- **App launcher**: rofi (drun/run/window modes)
-- **Terminal**: kitty with JetBrains Mono 12pt and full Claude 16-color palette
-- **Shell**: zsh + Oh My Zsh (zsh-autosuggestions, zsh-syntax-highlighting)
-- **Browser**: qutebrowser
-- **Editor**: neovim with custom Claude color scheme (pure Lua, no plugins)
-- **File manager**: lf (TUI; opens nsxiv/zathura/mpv via mime)
-- **PDF viewer**: zathura with mupdf backend, themed to Claude palette
-- **Image viewer**: nsxiv
-- **Media**: mpv + ffmpeg + playerctl (media key support)
-- **Audio**: PipeWire (PulseAudio-compatible) with pamixer (hotkeys + OSD) and pavucontrol
-- **Bluetooth**: bluez + blueman (systray applet)
-- **Compositor**: picom (xrender backend, compatible with QEMU and all hardware)
-- **Notifications**: dunst themed to Claude palette (volume/brightness OSD)
-- **Screen locker**: i3lock (navy background); auto-locks before suspend via xss-lock
-- **Auto-mount**: udiskie (systray, auto-mounts removable media)
-- **Blue light filter**: redshift (London defaults; edit `~/.config/redshift/redshift.conf`)
-- **GTK theme**: Adwaita-dark + Papirus-Dark icons
+Hyprland needs a DRM/EGL-capable virtual GPU. For a graphical QEMU test use
+`-vga virtio` (and an OpenGL display such as `-display gtk,gl=on`), rather than
+plain VGA.
 
 ---
 
-## Keybindings
+## Install
 
-All bindings use the **Super** key (Windows/Cmd key).
+The installer is a real full-disk ext4 installer for UEFI and BIOS:
+
+```bash
+# Interactive: lists internal disks, asks for a password, requires ERASE.
+sudo axyl-install
+
+# Unattended (erases /dev/sda):
+sudo axyl-install --auto --disk /dev/sda --yes --password 'choose-a-password'
+```
+
+Options: `--user`, `--hostname`, `--timezone`, `--allow-usb`. USB targets are
+refused by default. The live/root disk is always refused. The target disk is
+partitioned GPT: a 512 MiB EFI partition (UEFI) or 1 MiB BIOS boot partition,
+plus the rest as ext4.
+
+The installer:
+
+- installs the variant's package manifest from `/usr/local/share/axyl/`;
+- copies the live `/etc/skel` (Hyprland, Waybar, Mako, Kitty, Rofi, Neovim,
+  Dolphin/KDE, theme engine, Brave wrapper) to the target;
+- installs the vendored Brave package;
+- creates the user, sets the password, locks root, enables `wheel` sudo;
+- enables NetworkManager, Bluetooth, acpid, and greetd;
+- regenerates the user's theme files for the real home directory;
+- installs and configures GRUB for the detected firmware;
+- writes a greeter-based `/etc/greetd/config.toml` (no live autologin).
+
+Artix's package manifest uses Artix `system/world/galaxy`; only
+`mkinitcpio-archiso` and `arch-install-scripts` come from Arch `[extra]` during
+the live build.
+
+---
+
+## Desktop
+
+- **Compositor/session**: Hyprland (Lua config), Wayland with XWayland fallback
+- **Bar**: Waybar
+- **Notifications**: Mako
+- **Launcher**: Rofi
+- **Terminal**: Kitty
+- **Browser**: Brave (`brave-wayland` Ozone wrapper)
+- **File manager**: Dolphin (KDE/KIO, Kvantum + qt6ct theming)
+- **Editor**: Neovim with a vendored `lazy.nvim` plugin tree and offline
+  Treesitter parsers
+- **Shell**: zsh + Starship, autosuggestions, syntax highlighting
+- **Audio**: PipeWire/WirePlumber, `wpctl`, pavucontrol
+- **Bluetooth**: bluez + a small default-sink helper
+- **Theme engine**: `~/.config/theme/render.py` renders Hyprland, Waybar,
+  Mako/Rofi, Kitty, Starship, Neovim, Cava, KDE, Qt6ct, and GTK. Change
+  `~/.config/theme/palette.json` and rerun it.
+- **Lock/idle**: hyprlock + hypridle
+- **Screenshots**: hyprshot
+- **Clipboard**: cliphist + wl-clipboard
+
+### Main keybindings
+
+All bindings use **Super**.
 
 | Binding | Action |
 |---|---|
-| `Super + Return` | Open kitty terminal |
-| `Super + Space` | rofi app launcher |
-| `Super + E` | lf file manager (in kitty) |
-| `Super + B` | qutebrowser |
-| `Super + Shift + E` | Power menu (logout/reboot/shutdown/sleep) |
-| `Super + L` | Lock screen |
-| `Super + Shift + Q` | Close focused window |
-| `Super + Shift + K` | Kill focused window |
-| `Super + {H,J,K,L}` | Focus window (vim directions) |
-| `Super + Shift + {H,J,K,L}` | Swap window |
-| `Alt + Tab / Alt + Shift + Tab` | Cycle windows forward/back |
-| `Super + [ / ]` | Focus prev/next desktop |
-| `Super + grave / Tab` | Focus last node / last desktop |
-| `Super + {O,I}` | Focus older/newer in history |
-| `Super + {P,,,}` | Focus parent/first/second child |
-| `Super + {1-9}` | Switch to workspace |
-| `Super + Shift + {1-9}` | Move window to workspace |
-| `Super + T / Shift + T` | Set tiled / pseudo_tiled |
-| `Super + F` | Toggle fullscreen |
-| `Super + Shift + Space` | Toggle floating |
-| `Super + M` | Cycle desktop layout |
-| `Super + R` | Rotate node tree 90° |
-| `Super + Y` | Send newest marked to newest preselected |
-| `Super + G` | Swap with biggest window |
-| `Super + Ctrl + {H,J,K,L}` | Preselect direction |
-| `Super + Ctrl + {1-9}` | Preselect split ratio |
-| `Super + Ctrl + Space` | Cancel preselection |
-| `Super + Ctrl + {M,X,Y,Z}` | Toggle marked/locked/sticky/private |
-| `Super + Alt + {H,J,K,L}` | Expand window |
-| `Super + Alt + Shift + {H,J,K,L}` | Shrink window |
-| `Super + Arrow keys` | Move floating window |
-| `Super + Shift + R` | Restart bspwm |
-| `Super + Alt + Escape` | Quit bspwm |
-| `Super + Escape` | Reload sxhkd config |
-| `Print` | Screenshot — region (flameshot) |
-| `Super + Print` | Screenshot — full screen |
-| `XF86AudioRaiseVolume` | Volume +5% (with OSD) |
-| `XF86AudioLowerVolume` | Volume -5% (with OSD) |
-| `XF86AudioMute` | Toggle mute (with OSD) |
-| `XF86MonBrightnessUp/Down` | Brightness ±10% (with OSD) |
-| `XF86AudioPlay/Next/Prev` | Media playback (playerctl) |
+| `Super + Return` | Terminal |
+| `Super + D` | App launcher |
+| `Super + W` | Brave |
+| `Super + E` | Dolphin |
+| `Super + Shift + Q` | Power menu |
+| `Super + Shift + R` | Reload Hyprland |
+| `Super + /` | Keybind cheat sheet |
+| `Super + Shift + T` | Theme picker |
+| `Super + X` | Clipboard history |
+| `Super + Shift + X` | Emoji picker (Arch; Artix lacks `rofi-emoji`) |
+| `Super + 1..9` | Workspaces |
+| `Super + Shift + 1..9` | Move window to workspace |
+| `Super + R` | Enter resize mode |
+| `Print` | Region screenshot |
+
+`Super + Shift + Q` uses `hyprlock`, `loginctl` power actions, and the Rofi power
+menu installed in `~/.config/rofi/powermenu.sh`.
 
 ---
 
-## Live Session Credentials
+## Live session
 
 | Account | Password |
 |---|---|
 | `axyl` | `axyl` |
 | `root` | `toor` |
 
-`axyl` has passwordless sudo for the live session.
+`axyl` has passwordless sudo **in the live session only**. The installed system
+does not keep that rule. Live autologin is implemented with greetd
+`initial_session`; the installer writes a greeter-only config for the target.
+
+The live timezone is `Asia/Manila`, hostname is `axyl`.
 
 ---
 
-## Post-Install
+## Repository layout
 
-After installing Axyl to disk:
+```
+archiso/        Arch profile: packages, profiledef, airootfs
+artixiso/       Artix overlay/profile
+skel/           shared /etc/skel (desktop, shell, nvim, theme)
+docker/         builder Dockerfiles (arch, artix, brave)
+build.sh        per-variant ISO build, checksums, manifest
+flash.sh        USB-only flasher with checksum verification
+```
 
-1. Reboot into the installed system
-2. Log in and run:
-   ```bash
-   sudo axyl-setup
-   ```
-3. Reboot
-
-`axyl-setup` enables greetd and sets up XDG user directories.
-
----
-
-## Changelog
-
-- **2026-08-18** — Restructured project: Dockerfiles moved to `docker/`, shared dotfiles promoted to top-level `skel/`, pacman config riced (Color, ILoveCandy, VerbosePkgLists); expanded keybindings (window cycling, desktop navigation, preselect, resize expand/shrink, floating move); `setup.sh` updated for Docker-based workflow; both variants build via Docker
-- **2026-08-17** — Added Artix/runit variant; screen locker, volume/brightness OSD, bluetooth, PDF/image viewers, auto-mount, blue light filter; switched to greetd, PipeWire, qutebrowser, lf, zsh + Oh My Zsh
-- **2026-08-15** — Initial release: bspwm + polybar + rofi + kitty + neovim + Claude color scheme
+`skel/` is injected into `/etc/skel` at build time. Personal host data
+(`~/.ssh`, browser profiles, histories, caches, secrets, host-specific testing
+repos) is intentionally not copied.

@@ -50,8 +50,8 @@ read -r -t 15 QEMU_CHOICE || QEMU_CHOICE="n"
 if [[ "${QEMU_CHOICE,,}" == "y" ]]; then
     pacman -S --noconfirm --needed qemu-system-x86 edk2-ovmf
     ok "QEMU packages installed"
-    note "Test BIOS:  qemu-system-x86_64 -cdrom axyl-out/*.iso -m 2G -boot d"
-    note "Test UEFI:  qemu-system-x86_64 -cdrom axyl-out/*.iso -m 2G -bios /usr/share/ovmf/x64/OVMF.fd"
+    note "Test BIOS:  qemu-system-x86_64 -cdrom axyl-out/arch/axyl-arch-*.iso -m 2G -boot d"
+    note "Test UEFI:  qemu-system-x86_64 -cdrom axyl-out/arch/axyl-arch-*.iso -m 2G -bios /usr/share/ovmf/x64/OVMF.fd"
 else
     note "Skipping QEMU"
 fi

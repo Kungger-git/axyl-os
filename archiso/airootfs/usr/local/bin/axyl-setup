@@ -5,26 +5,36 @@ if [[ $EUID -ne 0 ]]; then
     echo "Run as root: sudo axyl-setup" >&2
     exit 1
 fi
-
 REALUSER="${SUDO_USER:-}"
-if [[ -z "$REALUSER" ]]; then
-    echo "Cannot determine target user. Run with sudo, not directly as root." >&2
+if [[ -z "$REALUSER" || "$REALUSER" == "root" ]]; then
+    echo "Run with sudo from your normal user account." >&2
     exit 1
 fi
 
-echo "==> Axyl post-install setup"
+echo "==> Axyl post-install setup (Arch / systemd)"
 
-# Update XDG user directories
-echo "  -> Updating XDG user directories..."
+# Installed systems use the greeter, not the live ISO autologin.
+cat > /etc/greetd/config.toml <<'EOF'
+[terminal]
+vt = 7
+
+[default_session]
+command = "agreety --cmd /usr/local/bin/start-hyprland-session"
+user = "greeter"
+EOF
+
+for svc in NetworkManager greetd acpid bluetooth; do
+    if systemctl list-unit-files "$svc.service" &>/dev/null; then
+        systemctl enable "$svc.service"
+    fi
+done
+systemctl set-default graphical.target
+
 sudo -u "$REALUSER" xdg-user-dirs-update
-
-# Enable ly display manager
-echo "  -> Enabling ly.service..."
-if systemctl list-unit-files ly.service &>/dev/null; then
-    systemctl enable ly.service
-else
-    echo "  Note: ly not installed. Run 'systemctl enable ly.service' after installing it."
+if [[ -x "/home/$REALUSER/.config/theme/render.py" ]]; then
+    sudo -u "$REALUSER" env HOME="/home/$REALUSER" \
+        "/home/$REALUSER/.config/theme/render.py" || true
 fi
 
 echo ""
-echo "Setup complete. Reboot to start your Axyl desktop."
+echo "Setup complete. Reboot to start the Hyprland desktop."

@@ -1,0 +1,14 @@
+NAME="Axyl Linux"
+PRETTY_NAME="Axyl Linux (Arch)"
+ID=arch
+ID_LIKE=arch
+BUILD_ID=rolling
+VARIANT="Arch Linux"
+VARIANT_ID=arch
+IMAGE_ID=axyl-arch
+ANSI_COLOR="38;2;217;119;87"
+HOME_URL="https://github.com/axyl-os"
+DOCUMENTATION_URL="https://wiki.archlinux.org/"
+SUPPORT_URL="https://github.com/axyl-os"
+BUG_REPORT_URL="https://github.com/axyl-os"
+LOGO=axyl

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Launch Brave with the Wayland/Ozone backend when available.
+exec /usr/bin/brave \
+    --ozone-platform-hint=auto \
+    --enable-features=WaylandWindowDecorations \
+    "$@"

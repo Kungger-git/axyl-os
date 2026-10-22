@@ -1,0 +1,12 @@
+[terminal]
+vt = 7
+
+[default_session]
+command = "agreety --cmd /usr/local/bin/start-hyprland-session"
+user = "greeter"
+
+# Live ISO: autologin straight into the Hyprland desktop as user axyl.
+# The installer rewrites this file without the initial_session block.
+[initial_session]
+command = "/usr/local/bin/start-hyprland-session"
+user = "axyl"

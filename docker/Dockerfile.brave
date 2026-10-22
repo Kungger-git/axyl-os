@@ -1,0 +1,27 @@
+FROM archlinux:latest
+
+# Build the AUR brave-bin package inside a disposable image so the ISO build
+# never needs AUR access or makepkg on the host.
+RUN pacman-key --init && \
+    pacman-key --populate archlinux && \
+    pacman -Syyu --noconfirm
+
+RUN pacman -S --noconfirm --needed \
+        base-devel \
+        git \
+        alsa-lib \
+        gtk3 \
+        libxss \
+        nss \
+        ttf-dejavu
+
+RUN useradd -m builder
+USER builder
+WORKDIR /home/builder
+
+RUN git clone --depth=1 https://aur.archlinux.org/brave-bin.git
+WORKDIR /home/builder/brave-bin
+
+ENV PKGDEST=/home/builder/out
+RUN mkdir -p "$PKGDEST" && \
+    makepkg --noconfirm --needed

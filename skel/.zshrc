@@ -1,28 +1,57 @@
-export ZSH="${HOME}/.oh-my-zsh"
+# ~/.zshrc
+# Axyl Linux Hyprland session
 
-ZSH_THEME="robbyrussell"
-HIST_STAMPS="yyyy-mm-dd"
-DISABLE_AUTO_UPDATE="true"
-DISABLE_UPDATE_PROMPT="true"
+# Preferred editor for local and remote sessions
+if [[ -n $SSH_CONNECTION ]]; then
+  export EDITOR='vim'
+else
+  export EDITOR='nvim'
+  export VISUAL='nvim'
+fi
 
-plugins=(git colored-man-pages zsh-autosuggestions zsh-syntax-highlighting)
-
-source "${ZSH}/oh-my-zsh.sh"
+export PATH="$HOME/.local/bin:$PATH"
+export HYPRSHOT_DIR="$HOME/Pictures/Screenshots"
 
 # Aliases
-alias ls='ls --color=auto'
-alias ll='ls -alFh'
-alias la='ls -A'
-alias l='ls -CF'
-alias grep='grep --color=auto'
-alias vi='nvim'
-alias vim='nvim'
+alias zshrc="nvim ~/.zshrc"
+alias l="ls -rthla"
+alias ll="ls -alFh"
+alias la="ls -A"
+alias hyprconf="nvim ~/.config/hypr/"
+alias waybarconf="nvim ~/.config/waybar/"
+alias kittyconf="nvim ~/.config/kitty/"
+alias nvimconf="nvim ~/.config/nvim/"
+alias brave="brave-wayland"
+alias files="dolphin"
+alias update="sudo pacman -Syu"
+alias venv="source ./venv/bin/activate"
 
-export EDITOR=nvim
-export VISUAL=nvim
-export BROWSER=qutebrowser
-export LF_COLORS="di=38;2;110;114;144:ln=38;2;217;119;87:ex=38;2;80;250;123:*.jpg=38;2;232;146;124:*.png=38;2;232;146;124:*.gif=38;2;232;146;124:*.mp4=38;2;189;147;249:*.mkv=38;2;189;147;249:*.pdf=38;2;255;85;85"
-export TERM=xterm-256color
+# Prompt
+eval "$(starship init zsh)"
 
-# zsh-autosuggestions: accept with right arrow
-bindkey '^[[C' autosuggest-accept
+# Completion
+autoload -Uz compinit
+compinit
+
+# History-based suggestions
+[[ -r /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]] && \
+  source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+# Syntax highlighting (keep this last)
+[[ -r /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] && \
+  source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+
+# Ctrl+O: ranger directory picker
+bindkey -s '^O' 'ranger --choosedir=$HOME/.rangerdir; cd "$(cat ~/.rangerdir 2>/dev/null)"\n'
+
+# Ctrl+H: start a Hyprland session when one is not already running.
+_hyprland_start() {
+  if [[ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]] || pgrep -x Hyprland >/dev/null 2>&1; then
+    zle backward-delete-char
+  else
+    BUFFER='Hyprland'
+    zle accept-line
+  fi
+}
+zle -N _hyprland_start
+bindkey '^H' _hyprland_start

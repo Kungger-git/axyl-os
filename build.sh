@@ -9,7 +9,10 @@ docker buildx version &>/dev/null && export DOCKER_BUILDKIT=1 || true
 
 VARIANT="${1:-arch}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT_DIR="$SCRIPT_DIR/axyl-out"
+OUT_ROOT="$SCRIPT_DIR/axyl-out"
+ISO_DIR="$OUT_ROOT/$VARIANT"
+PKG_DIR="$SCRIPT_DIR/axyl-build/pkgs"
+VERSION="$(date +%Y.%m.%d)"
 
 # Colours
 ACCENT='\e[38;2;217;119;87m'
@@ -23,10 +26,9 @@ ok()   { echo -e "${GREEN} ok ${RESET}$*"; }
 err()  { echo -e "${RED}ERR ${RESET}$*" >&2; exit 1; }
 note() { echo -e "${MUTED}    $*${RESET}"; }
 
-info "Axyl Linux -- build script (variant: $VARIANT)"
+info "Axyl Linux -- build script (variant: $VARIANT, version: $VERSION)"
 echo ""
 
-# Variant preflight
 case "$VARIANT" in
     arch)
         command -v docker &>/dev/null \
@@ -60,14 +62,29 @@ case "$VARIANT" in
         ;;
 esac
 
-# Inject the shared skel into the assembled profile.
-# skel/ lives at the repo root -- not inside archiso/ or artixiso/ -- so it is
-# variant-neutral and not subject to the override layer merge.
+# Shared desktop/user configuration.
 cp -rT "$SCRIPT_DIR/skel" "$TMP_PROFILE/airootfs/etc/skel"
-PROFILE_DIR="$TMP_PROFILE"
+
+# Build the vendored Brave package once.  Brave is AUR-only, so the ISO never
+# depends on AUR access; the built package is installed from the live image and
+# copied into the installed system by axyl-install.
+mkdir -p "$PKG_DIR"
+if ! compgen -G "$PKG_DIR/brave-bin-*.pkg.tar.zst" >/dev/null; then
+    info "Building vendored brave-bin package (first run only)..."
+    echo ""
+    docker build -t axyl-brave-builder:latest - < "$SCRIPT_DIR/docker/Dockerfile.brave"
+    docker run --rm -v "$PKG_DIR:/out" axyl-brave-builder:latest \
+        sh -c 'cp /home/builder/out/brave-bin-*.pkg.tar.zst /out/'
+    ok "Brave package built"
+    echo ""
+fi
+BRAVE_PKG="$(find "$PKG_DIR" -maxdepth 1 -name 'brave-bin-*.pkg.tar.zst' | sort | tail -n1)"
+[[ -n "$BRAVE_PKG" ]] || err "Could not locate built brave-bin package"
+note "Brave package: $(basename "$BRAVE_PKG")"
+mkdir -p "$TMP_PROFILE/airootfs/usr/local/share/axyl"
+cp "$BRAVE_PKG" "$TMP_PROFILE/airootfs/usr/local/share/axyl/"
 
 # Build Docker builder image.
-# Always remove and rebuild to pick up any Dockerfile changes since the last run.
 if docker image inspect "$DOCKER_IMAGE" &>/dev/null; then
     info "Removing old builder image..."
     docker rmi "$DOCKER_IMAGE"
@@ -81,31 +98,56 @@ ok "Builder image ready ($DOCKER_IMAGE)"
 ok "Preflight passed ($VARIANT / docker)"
 echo ""
 
-# Prepare output directory
-mkdir -p "$OUT_DIR"
+# The output root is root-owned from previous builds; let the container create
+# the per-variant directory and write the ISO/checksums.
+mkdir -p "$OUT_ROOT" 2>/dev/null || true
+docker run --rm -v "$OUT_ROOT:/out" "$DOCKER_IMAGE" \
+    sh -c "mkdir -p '/out/$VARIANT'"
+docker run --rm -v "$ISO_DIR:/out" "$DOCKER_IMAGE" \
+    sh -c 'rm -f /out/*.iso /out/*.sha256 /out/*manifest*'
 
-# Build
 info "Building Axyl ISO ($VARIANT)..."
-note "Profile : $PROFILE_DIR"
-note "Output  : $OUT_DIR"
+note "Profile : $TMP_PROFILE"
+note "Output  : $ISO_DIR"
 echo ""
 
 docker run --rm --privileged \
-    -v "$PROFILE_DIR:/profile:ro" \
-    -v "$(realpath "$OUT_DIR"):/out" \
+    -v "$TMP_PROFILE:/profile:ro" \
+    -v "$ISO_DIR:/out" \
     "$DOCKER_IMAGE" \
     mkarchiso -v -w /tmp/axyl-work -o /out /profile
+
+echo ""
+info "Writing checksums and manifest..."
+docker run --rm -v "$ISO_DIR:/out" \
+    -e AXYL_VARIANT="$VARIANT" -e AXYL_VERSION="$VERSION" \
+    "$DOCKER_IMAGE" sh -c '
+        set -eu
+        cd /out
+        iso="$(find . -maxdepth 1 -name "axyl-${AXYL_VARIANT}-*-x86_64.iso" -printf "%f\n" | sort | tail -n1)"
+        [ -n "$iso" ] || { echo "ISO not found" >&2; exit 1; }
+        sha256sum "$iso" > "$iso.sha256"
+        {
+            echo "variant=${AXYL_VARIANT}"
+            echo "version=${AXYL_VERSION}"
+            echo "iso=${iso}"
+            echo "sha256=$(cut -d" " -f1 "$iso.sha256")"
+            echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "profile=axyl-${AXYL_VARIANT}"
+        } > "axyl-${AXYL_VARIANT}-manifest.txt"
+    '
 
 echo ""
 ok "Build complete!"
 echo ""
 info "ISO location:"
-ls -lh "$OUT_DIR"/*.iso 2>/dev/null \
+ls -lh "$ISO_DIR"/*.iso 2>/dev/null \
     || note "(no .iso found -- check mkarchiso output above)"
+ls -lh "$ISO_DIR"/*.sha256 "$ISO_DIR"/*manifest* 2>/dev/null || true
 echo ""
 info "Test in QEMU (BIOS):"
-note "  qemu-system-x86_64 -cdrom $OUT_DIR/*.iso -m 2G -boot d"
+note "  qemu-system-x86_64 -cdrom $ISO_DIR/*.iso -m 2G -boot d"
 echo ""
 info "Test in QEMU (UEFI -- requires edk2-ovmf):"
-note "  qemu-system-x86_64 -cdrom $OUT_DIR/*.iso -m 2G \\"
+note "  qemu-system-x86_64 -cdrom $ISO_DIR/*.iso -m 2G \\"
 note "    -bios /usr/share/ovmf/x64/OVMF.fd"

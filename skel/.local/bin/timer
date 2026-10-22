@@ -1,0 +1,1238 @@
+#!/usr/bin/env bash
+#
+#  ascii-timer - a themed ASCII countdown timer for the terminal.
+#
+#  usage:  timer 14:30        count down to a time of day
+#          timer 2:30pm
+#          timer 25m          duration
+#          timer 1h30m
+#          timer 90s
+#          timer 25           bare number = minutes
+#          timer pomodoro     named preset from config
+#
+set -o pipefail
+shopt -s extglob
+
+VERSION="1.1.0"
+PROG="timer"
+
+# --------------------------------------------------------------------- state
+THEME="digital"
+FPS=5
+FLASH_COUNT=5
+NOFLASH=0
+PLAIN=0
+LIST=0
+DRY=0
+RENDER_ONCE=0
+SIZE="80x24"
+REM_OVERRIDE=""
+TOT_OVERRIDE=""
+FRAME_OVERRIDE=""
+AT_SPEC=""
+IN_SPEC=""
+TARGET_SPEC=""
+
+HELP=0
+TUI=0
+BANNER=0
+PAUSED=0
+PAUSED_REM=0
+QUIT=0
+FINISHED=0
+THEME_DIRTY=0
+UPDATE_STATUS=0
+RESIZED=1
+COLOR=1
+TICK=0.05
+
+W=80
+H=24
+FRAME=0
+NOW_MS=0
+deadline_ms=0
+total_ms=0
+REMAIN_MS=0
+STATUS_LEFT=""
+TARGET_LABEL=""
+
+ART_LINES=()
+FRAME_LINES=()
+declare -A GLYPH
+declare -A PRESETS
+THEMES=(digital candle hourglass cigarette)
+declare -A THEME_DESC=(
+  [digital]="large block digits with blinking colons"
+  [candle]="a candle that burns down"
+  [hourglass]="sand draining through the neck"
+  [cigarette]="a cigarette burning toward the filter"
+)
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ascii-timer"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+# ------------------------------------------------------------------ utilities
+die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
+
+# no-fork helpers use globals to keep the render loop free of subshells
+
+rep() { # rep CHAR N  -> $REP
+  local c=$1 n=$2 s
+  printf -v s '%*s' "$n" ''
+  REP=${s// /$c}
+}
+
+sand_str() { # sand_str N SEED -> $SAND_STR  (textured sand run, no padding)
+  local n=$1 seed=$2 i c s=""
+  for ((i=0; i<n; i++)); do
+    case $(( (i + seed) % 4 )) in
+      0|2) c=':' ;;
+      1)   c='.' ;;
+      *)   c='o' ;;
+    esac
+    s+=$c
+  done
+  SAND_STR=$s
+}
+
+set_pct() { # set_pct REMAIN TOTAL -> $PCT (0..1000)
+  local rem=$1 tot=$2 p
+  (( tot < 1 )) && tot=1
+  p=$(( rem * 1000 / tot ))
+  (( p < 0 )) && p=0
+  (( p > 1000 )) && p=1000
+  PCT=$p
+}
+
+set_fmt_dur() { # set_fmt_dur MS -> $FMT
+  local s=$(( ($1 + 999) / 1000 ))
+  (( s < 0 )) && s=0
+  local h=$(( s / 3600 )) m=$(( (s / 60) % 60 )) sec=$(( s % 60 ))
+  if (( h > 0 )); then
+    FMT=$(printf '%d:%02d:%02d' "$h" "$m" "$sec")
+  else
+    FMT=$(printf '%d:%02d' "$m" "$sec")
+  fi
+}
+
+# strip ANSI so visible widths are correct (all art is strict ASCII).
+# the escape is a glob: [ + any [0-9;] parameter bytes + a final letter.
+ANSI_RE=$'\033'"[[]*([0-9;])[A-Za-z]"
+
+vlen() { local s=${1//$ANSI_RE/}; VLEN=${#s}; }
+
+clip_line() { # clip_line STR WIDTH -> $CLIPPED  (ANSI-aware; escapes kept intact)
+  local s=$1 w=$2
+  vlen "$s"
+  if (( VLEN <= w )); then CLIPPED=$s; return; fi
+  local out="" vis=0 i=0 n=${#s} ch c
+  while (( i < n && vis < w )); do
+    ch=${s:i:1}
+    if [[ $ch == $'\033' ]]; then
+      out+=$ch; i=$(( i + 1 ))
+      if (( i < n )) && [[ ${s:i:1} == '[' ]]; then
+        out+='['; i=$(( i + 1 ))
+        while (( i < n )); do
+          c=${s:i:1}; out+=$c; i=$(( i + 1 ))
+          [[ $c == [A-Za-z] ]] && break
+        done
+      fi
+      continue
+    fi
+    out+=$ch; vis=$(( vis + 1 )); i=$(( i + 1 ))
+  done
+  CLIPPED="${out}${C_RESET}"
+}
+
+center_line() { # center_line STR WIDTH -> $CENTERED
+  local s=$1 w=$2
+  [[ -z $s ]] && { CENTERED=""; return; }
+  vlen "$s"
+  if (( VLEN >= w )); then CENTERED=$s; return; fi
+  printf -v CENTERED '%*s%s' "$(( (w - VLEN) / 2 ))" '' "$s"
+}
+
+two_col() { # two_col LEFT RIGHT WIDTH -> $TWOCOL
+  local l=$1 r=$2 w=$3 ln rn
+  vlen "$l"; ln=$VLEN
+  vlen "$r"; rn=$VLEN
+  if (( ln + rn >= w )); then clip_line "$l" "$w"; TWOCOL=$CLIPPED; return; fi
+  printf -v TWOCOL '%s%*s%s' "$l" "$(( w - ln - rn ))" '' "$r"
+}
+
+pct_color() { # pct_color PCT -> $PC  (remaining-time urgency ramp)
+  local p=$1
+  if (( p > 500 )); then PC=$C_GREEN
+  elif (( p > 250 )); then PC=$C_YELLOW
+  else PC=$C_RED
+  fi
+}
+
+finalize_frame() { # finalize_frame WIDTH HEIGHT -> exactly HEIGHT lines, each <= WIDTH wide
+  local w=$1 h=$2 i
+  (( ${#FRAME_LINES[@]} > h )) && FRAME_LINES=("${FRAME_LINES[@]:0:h}")
+  while (( ${#FRAME_LINES[@]} < h )); do FRAME_LINES+=(""); done
+  for ((i=0; i<h; i++)); do
+    clip_line "${FRAME_LINES[i]}" "$w"
+    FRAME_LINES[i]=$CLIPPED
+  done
+}
+
+# --------------------------------------------------------------------- colors
+setup_colors() {
+  if [[ -n ${NO_COLOR:-} || ${TERM:-dumb} == dumb ]]; then
+    COLOR=0
+    C_RESET=""; C_BOLD=""; C_DIM=""; C_RED=""; C_GREEN=""; C_YELLOW=""
+    C_BLUE=""; C_MAGENTA=""; C_CYAN=""; C_WHITE=""; C_ORANGE=""; C_GREY=""
+    C_SAND=""; C_BROWN=""; C_SMOKE=""; C_GLASS=""
+    return
+  fi
+  COLOR=1
+  C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+  if [[ ${TERM:-} == *256color* ]]; then
+    C_RED=$'\033[38;5;203m'; C_GREEN=$'\033[38;5;114m'
+    C_YELLOW=$'\033[38;5;221m'; C_BLUE=$'\033[38;5;75m'
+    C_MAGENTA=$'\033[38;5;176m'; C_CYAN=$'\033[38;5;80m'
+    C_WHITE=$'\033[38;5;253m'; C_ORANGE=$'\033[38;5;208m'
+    C_GREY=$'\033[38;5;244m'; C_SAND=$'\033[38;5;222m'
+    C_BROWN=$'\033[38;5;130m'; C_SMOKE=$'\033[38;5;245m'
+    C_GLASS=$'\033[38;5;109m'
+  else
+    C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+    C_BLUE=$'\033[34m'; C_MAGENTA=$'\033[35m'; C_CYAN=$'\033[36m'
+    C_WHITE=$'\033[37m'; C_ORANGE=$'\033[33m'; C_GREY=$'\033[90m'
+    C_SAND=$'\033[33m'; C_BROWN=$'\033[31m'; C_SMOKE=$'\033[90m'
+    C_GLASS=$'\033[36m'
+  fi
+}
+
+# ---------------------------------------------------------------------- config
+load_config() {
+  PRESETS=()
+  PRESETS[pomodoro]="25m"
+  PRESETS[break]="5m"
+  PRESETS[tea]="3m"
+  PRESETS[coffee]="4m"
+  PRESETS[nap]="20m"
+
+  local f=$CONFIG_FILE
+  [[ -f $f ]] || return 0
+
+  local line k v
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%%#*}
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    [[ -z $line ]] && continue
+    [[ $line == *=* ]] || continue
+    k=${line%%=*}
+    v=${line#*=}
+    k=${k%"${k##*[![:space:]]}"}
+    v=${v#"${v%%[![:space:]]*}"}
+    case $k in
+      theme) [[ -n $v ]] && THEME=$v ;;
+      fps)   [[ $v =~ ^[0-9]+$ ]] && FPS=$v ;;
+      flash) [[ $v =~ ^[0-9]+$ ]] && FLASH_COUNT=$v ;;
+      *)     [[ -n $k ]] && PRESETS[$k]="$v" ;;
+    esac
+  done < "$f"
+}
+
+save_config() {
+  mkdir -p "$CONFIG_DIR" 2>/dev/null || return 0
+  local tmp="$CONFIG_FILE.tmp.$$"
+  local k
+  {
+    printf '# ascii-timer config\n'
+    printf 'theme=%s\n' "$THEME"
+    printf 'fps=%s\n' "$FPS"
+    printf 'flash=%s\n' "$FLASH_COUNT"
+    for k in $(printf '%s\n' "${!PRESETS[@]}" | sort); do
+      printf '%s=%s\n' "$k" "${PRESETS[$k]}"
+    done
+  } > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+  THEME_DIRTY=0
+}
+
+# ------------------------------------------------------------------- time input
+now_ms() { local t=${EPOCHREALTIME/.}; NOW_MS=$(( t / 1000 )); }
+
+# parse_spec SPEC -> sets P_KIND (duration|clock|preset), P_SECS, P_EPOCH, P_LABEL
+parse_spec() {
+  local spec=$1 s
+  s=${spec// /}
+  s=${s,,}
+
+  [[ -z $s ]] && die "no time given (try: $PROG --help)"
+
+  # preset name?
+  if [[ -n ${PRESETS[$s]:-} ]]; then
+    spec=${PRESETS[$s]}
+    s=${spec// /}
+    s=${s,,}
+  fi
+
+  P_KIND=""; P_SECS=0; P_EPOCH=0; P_LABEL=""; P_DESC=""
+
+  # bare number -> minutes
+  if [[ $s =~ ^[0-9]+$ ]]; then
+    P_KIND=duration
+    P_SECS=$(( s * 60 ))
+    (( P_SECS > 0 )) || die "duration must be greater than zero"
+    P_DESC="$s minute timer"
+    return 0
+  fi
+
+  # durations: 1h30m, 25m, 90s, 1h
+  if [[ $s =~ ^([0-9]+h)?([0-9]+m)?([0-9]+s)?$ && $s == *[0-9]* ]]; then
+    local h=0 m=0 sec=0
+    [[ $s =~ ([0-9]+)h ]] && h=${BASH_REMATCH[1]}
+    [[ $s =~ ([0-9]+)m ]] && m=${BASH_REMATCH[1]}
+    [[ $s =~ ([0-9]+)s ]] && sec=${BASH_REMATCH[1]}
+    P_SECS=$(( h * 3600 + m * 60 + sec ))
+    (( P_SECS > 0 )) || die "duration must be greater than zero"
+    P_KIND=duration
+    P_DESC="$spec timer"
+    return 0
+  fi
+
+  # clock times: 14:30, 2:30pm, 9am
+  local hh mm ap
+  if [[ $s =~ ^([0-9]{1,2}):([0-9]{2})(am|pm)?$ ]]; then
+    hh=${BASH_REMATCH[1]}; mm=${BASH_REMATCH[2]}; ap=${BASH_REMATCH[3]}
+  elif [[ $s =~ ^([0-9]{1,2})(am|pm)$ ]]; then
+    hh=${BASH_REMATCH[1]}; mm=00; ap=${BASH_REMATCH[2]}
+  else
+    die "cannot understand '$spec' (try 14:30, 2:30pm, 25m, or a preset name)"
+  fi
+
+  hh=$(( 10#$hh ))
+  mm=$(( 10#$mm ))
+  (( mm < 60 )) || die "invalid minutes in '$spec'"
+  if [[ -n $ap ]]; then
+    (( hh >= 1 && hh <= 12 )) || die "invalid hour in '$spec'"
+    (( hh == 12 )) && hh=0
+    [[ $ap == pm ]] && hh=$(( hh + 12 ))
+  else
+    (( hh <= 23 )) || die "invalid hour in '$spec'"
+  fi
+
+  now_ms
+  local now_s=$(( NOW_MS / 1000 ))
+  local target
+  if ! target=$(date -d "$(printf '%02d:%02d' "$hh" "$mm")" +%s 2>/dev/null); then
+    die "could not resolve time '$spec'"
+  fi
+  P_LABEL="today"
+  if (( target <= now_s )); then
+    if ! target=$(date -d "tomorrow $(printf '%02d:%02d' "$hh" "$mm")" +%s 2>/dev/null); then
+      die "could not resolve time '$spec'"
+    fi
+    P_LABEL="tomorrow"
+  fi
+  P_KIND=clock
+  P_EPOCH=$target
+  P_SECS=$(( target - now_s ))
+  P_DESC=$(printf '%02d:%02d %s' "$hh" "$mm" "$P_LABEL")
+  return 0
+}
+
+# -------------------------------------------------------------------- glyphs
+init_glyphs() {
+  GLYPH[0]='###|# #|# #|# #|###'
+  GLYPH[1]='  #|  #|  #|  #|  #'
+  GLYPH[2]='###|  #|###|#  |###'
+  GLYPH[3]='###|  #|###|  #|###'
+  GLYPH[4]='# #|# #|###|  #|  #'
+  GLYPH[5]='###|#  |###|  #|###'
+  GLYPH[6]='###|#  |###|# #|###'
+  GLYPH[7]='###|  #|  #|  #|  #'
+  GLYPH[8]='###|# #|###|# #|###'
+  GLYPH[9]='###|# #|###|  #|###'
+  GLYPH[':']=' |#| |#| '
+  GLYPH[' ']=' | | | | '
+  GLYPH[T]='###| # | # | # | # '
+  GLYPH[I]='###| # | # | # |###'
+  GLYPH[M]='# #|###|# #|# #|# #'
+  GLYPH[E]='###|#  |###|#  |###'
+  GLYPH[S]='###|#  |###|  #|###'
+  GLYPH[U]='# #|# #|# #|# #|###'
+  GLYPH[P]='###|# #|###|#  |#  '
+  GLYPH["'"]=' # |#  |   |   |   '
+  GLYPH['!']=' # | # | # |   | # '
+}
+
+glyph_width() { local g=${GLYPH[$1]-}; local first=${g%%|*}; GW=${#first}; }
+
+big_text() { # big_text STR -> $BIG_ROWS (5 rows)
+  local str=$1 i ch g r first=1
+  local -a acc=("" "" "" "" "")
+  for ((i=0; i<${#str}; i++)); do
+    ch=${str:i:1}
+    g=${GLYPH[$ch]-}
+    [[ -z $g ]] && continue
+    local -a gr
+    IFS='|' read -r -a gr <<< "$g"
+    for ((r=0; r<5; r++)); do
+      (( first )) || acc[r]+=" "
+      acc[r]+="${gr[r]-}"
+    done
+    first=0
+  done
+  BIG_ROWS=("${acc[@]}")
+}
+
+# ===================================================================== themes
+# every theme fills ART_LINES for the given art region: theme_x W H REMAIN TOTAL FRAME
+
+theme_digital() {
+  local w=$1 h=$2 rem=$3 tot=$4 frame=$5
+  ART_LINES=()
+  set_pct "$rem" "$tot"
+  pct_color "$PCT"                 # green -> amber -> red as time runs out
+
+  local secs=$(( (rem + 999) / 1000 ))
+  (( secs < 0 )) && secs=0
+
+  local str
+  if (( secs >= 3600 )); then
+    str=$(printf '%02d:%02d:%02d' $(( secs / 3600 )) $(( (secs / 60) % 60 )) $(( secs % 60 )))
+  else
+    str=$(printf '%02d:%02d' $(( secs / 60 )) $(( secs % 60 )))
+  fi
+
+  local need=0 i
+  for ((i=0; i<${#str}; i++)); do glyph_width "${str:i:1}"; need=$(( need + GW )); done
+  need=$(( need + ${#str} - 1 ))
+
+  if (( need > w )) && (( secs >= 3600 )); then
+    str=$(printf '%02d:%02d' $(( secs / 60 )) $(( secs % 60 )))
+    need=0
+    for ((i=0; i<${#str}; i++)); do glyph_width "${str:i:1}"; need=$(( need + GW )); done
+    need=$(( need + ${#str} - 1 ))
+  fi
+
+  if (( need > w || h < 5 )); then
+    set_fmt_dur "$rem"
+    ART_LINES=("${C_BOLD}${PC}${FMT}${C_RESET}")
+    return
+  fi
+
+  # colons blink while the timer is running
+  local shown=$str
+  if (( !PAUSED && rem > 0 && frame % 2 == 1 )); then shown=${str//:/ }; fi
+
+  big_text "$shown"
+  local r
+  for ((r=0; r<5; r++)); do
+    ART_LINES+=("${C_BOLD}${PC}${BIG_ROWS[r]}${C_RESET}")
+  done
+}
+
+theme_candle() {
+  local w=$1 h=$2 rem=$3 tot=$4 frame=$5
+  ART_LINES=()
+  (( PAUSED )) && frame=0            # frozen flame while paused
+  set_pct "$rem" "$tot"
+  local pct=$PCT
+
+  # --- flame: layered, flickering, guttering out at the very end -----------
+  local -a flame
+  if (( rem <= 0 )); then
+    flame=("${C_SMOKE}    ~    ${C_RESET}" "${C_SMOKE}   ~ ~   ${C_RESET}")
+  elif (( pct < 100 )); then
+    flame=(
+      "${C_ORANGE}   , ,   ${C_RESET}"
+      "${C_ORANGE}  ( ${C_YELLOW}.${C_RESET}${C_ORANGE} )  ${C_RESET}"
+    )
+  else
+    local tip='   .-.   '
+    (( frame % 2 == 1 )) && tip='   ,-,   '
+    (( frame % 3 == 0 )) && tip="   '-'   "
+    local core='*'
+    case $(( frame % 3 )) in
+      0) core='^' ;;
+      2) core='o' ;;
+    esac
+    flame=(
+      "${C_YELLOW}${tip}${C_RESET}"
+      "${C_ORANGE}  ( ${C_YELLOW}${C_BOLD}${core}${C_RESET}${C_ORANGE} )  ${C_RESET}"
+      "${C_ORANGE}   \\_/   ${C_RESET}"
+    )
+  fi
+
+  # --- wick, wax rim (with the odd drip), body, holder ---------------------
+  local wick="${C_GREY}    |    ${C_RESET}"
+  local rim
+  if (( (frame / 2) % 2 == 1 )); then rim="${C_YELLOW}./~~~~~\\.${C_RESET}"
+  else rim="${C_YELLOW} /~~~~~\\ ${C_RESET}"; fi
+
+  local avail=$(( h - ${#flame[@]} - 3 ))   # minus wick, rim, holder
+  (( avail < 0 )) && avail=0
+  local body=$(( avail * pct / 1000 ))
+  (( rem > 0 && body < 1 && avail >= 1 )) && body=1
+  (( body > avail )) && body=avail
+
+  local r
+  for ((r=0; r<${#flame[@]}; r++)); do ART_LINES+=("${flame[r]}"); done
+  ART_LINES+=("$wick")
+  ART_LINES+=("$rim")
+  for ((r=0; r<body; r++)); do ART_LINES+=("${C_WHITE}|       |${C_RESET}"); done
+  ART_LINES+=("${C_BROWN}[#######]${C_RESET}")
+
+  # sit on the floor: pad the top so the holder stays put as it burns down
+  local pad=$(( h - ${#ART_LINES[@]} ))
+  if (( pad > 0 )); then
+    local -a top=()
+    for ((r=0; r<pad; r++)); do top+=(""); done
+    ART_LINES=("${top[@]}" "${ART_LINES[@]}")
+  fi
+}
+
+theme_hourglass() {
+  local w=$1 h=$2 rem=$3 tot=$4 frame=$5
+  ART_LINES=()
+  set_pct "$rem" "$tot"
+  local pct=$PCT
+
+  if (( h < 7 || w < 7 )); then
+    set_fmt_dur "$rem"
+    ART_LINES=("${C_SAND}${FMT}${C_RESET}")
+    return
+  fi
+
+  local ch=$(( (h - 3) / 2 ))          # rows per chamber
+  local half=$(( (w - 1) / 2 ))
+  (( ch > half )) && ch=$half
+  (( ch < 2 )) && ch=2
+  local aw=$(( 2 * ch + 1 ))           # total width, always odd
+
+  local top_rows=$(( (ch * pct + 500) / 1000 ))
+  (( top_rows > ch )) && top_rows=ch
+  (( top_rows < 0 )) && top_rows=0
+  local bot_rows=$(( ch - top_rows ))
+
+  # falling grain stops once the top chamber is empty
+  local stream=' '
+  if (( rem > 0 && top_rows > 0 )); then
+    if (( PAUSED )); then stream='.'
+    else
+      local schars=":.'|"
+      stream=${schars:$(( frame % 4 )):1}
+    fi
+  fi
+
+  local i j pad inner n
+
+  # top wooden cap
+  rep '=' "$(( aw - 2 ))"
+  ART_LINES+=("${C_BROWN}+${REP}+${C_RESET}")
+
+  # top chamber (sand settles against the neck as it drains)
+  for ((i=0; i<ch; i++)); do
+    n=$(( aw - 2 - 2 * i ))
+    rep ' ' "$i"; pad=$REP
+    if (( i >= ch - top_rows )); then
+      sand_str "$n" "$i"
+      inner="${C_SAND}${SAND_STR}${C_RESET}"
+    else
+      rep ' ' "$n"; inner=$REP
+    fi
+    ART_LINES+=("${pad}${C_GLASS}\\${C_RESET}${inner}${C_GLASS}/${C_RESET}${pad}")
+  done
+
+  # neck
+  rep ' ' "$ch"; pad=$REP
+  ART_LINES+=("${pad}${C_SAND}${stream}${C_RESET}${pad}")
+
+  # bottom chamber (sand piles up from the base)
+  for ((j=0; j<ch; j++)); do
+    n=$(( 2 * j + 1 ))
+    rep ' ' "$(( ch - 1 - j ))"; pad=$REP
+    if (( j >= ch - bot_rows )); then
+      sand_str "$n" "$(( j + 3 ))"
+      inner="${C_SAND}${SAND_STR}${C_RESET}"
+    else
+      rep ' ' "$n"; inner=$REP
+    fi
+    ART_LINES+=("${pad}${C_GLASS}/${C_RESET}${inner}${C_GLASS}\\${C_RESET}${pad}")
+  done
+
+  # bottom wooden cap
+  rep '=' "$(( aw - 2 ))"
+  ART_LINES+=("${C_BROWN}+${REP}+${C_RESET}")
+}
+
+theme_cigarette() {
+  local w=$1 h=$2 rem=$3 tot=$4 frame=$5
+  ART_LINES=()
+  (( PAUSED )) && frame=0            # frozen plume while paused
+  set_pct "$rem" "$tot"
+  local pct=$PCT
+
+  local L=$(( w - 2 ))
+  (( L > 64 )) && L=64
+  if (( L < 12 )); then
+    set_fmt_dur "$rem"
+    ART_LINES=("${C_SMOKE}${FMT}${C_RESET}")
+    return
+  fi
+
+  local filter=$(( L / 6 ))
+  (( filter < 4 )) && filter=4
+  (( filter > L / 3 )) && filter=$(( L / 3 ))
+
+  # ember is the lit tip: it retreats toward the filter as the cigarette is
+  # consumed, so the whole thing visibly shortens.
+  local ember=$(( filter + (L - filter - 3) * pct / 1000 ))
+  (( ember < filter )) && ember=$filter
+  (( ember > L - 3 )) && ember=$(( L - 3 ))
+
+  local ec='@'
+  if (( rem <= 0 )); then ec='x'
+  elif (( frame % 2 == 1 )); then ec='*'
+  fi
+
+  # filter
+  rep ':' "$(( filter - 2 ))"
+  local fs="${C_BROWN}[${REP}]${C_RESET}"
+  # unburnt body up to the ember
+  rep '#' "$(( ember - filter ))"
+  local bs="${C_WHITE}${REP}${C_RESET}"
+  # ember
+  local es
+  if (( rem <= 0 )); then es="${C_GREY}${C_BOLD}${ec}${C_RESET}"
+  else es="${C_RED}${C_BOLD}${ec}${C_RESET}"; fi
+  # a little wavy ash flake at the tip
+  local tip ts
+  if (( frame % 2 )); then tip=':.'; else tip='.:'; fi
+  ts="${C_GREY}${tip}${C_RESET}"
+  # air after the tip holds the row at a constant width so the filter stays put
+  local tail=$(( L - ember - 3 ))
+  (( tail < 0 )) && tail=0
+  rep ' ' "$tail"
+  local row="${fs}${bs}${es}${ts}${REP}"
+
+  # rising plume, anchored to the ember and clamped to the cigarette
+  local smoke_rows=$(( h - 1 ))
+  (( smoke_rows > 5 )) && smoke_rows=5
+  (( smoke_rows < 0 )) && smoke_rows=0
+  local -a smoke=()
+  if (( rem > 0 )); then
+    local r sway wave col sch="~'\`.,"
+    for ((r=1; r<=smoke_rows; r++)); do
+      sway=$(( (r % 2 ? 1 : -1) * ((r + 1) / 2) ))
+      if (( PAUSED )); then wave=0; else wave=$(( (frame + r) % 3 - 1 )); fi
+      col=$(( ember + sway + wave ))
+      (( col < 0 )) && col=0
+      (( col > L - 1 )) && col=$(( L - 1 ))
+      local buf="" kk
+      for ((kk=0; kk<L; kk++)); do
+        if (( kk == col )); then buf+="${sch:$(( (frame + r) % 5 )):1}"; else buf+=" "; fi
+      done
+      smoke+=("${C_SMOKE}${buf}${C_RESET}")
+    done
+  fi
+
+  # sit on the floor, plume rising above the ember
+  local r pad=$(( h - ${#smoke[@]} - 1 ))
+  if (( pad > 0 )); then
+    local -a top=()
+    for ((r=0; r<pad; r++)); do top+=(""); done
+    ART_LINES+=("${top[@]}")
+  fi
+  for ((r=${#smoke[@]}-1; r>=0; r--)); do ART_LINES+=("${smoke[r]}"); done
+  ART_LINES+=("$row")
+}
+
+# ================================================================== rendering
+set_progress() { # set_progress WIDTH PCT -> $PBAR
+  local w=$1 pct=$2
+  set_fmt_dur "$REMAIN_MS"
+
+  # [" + bar + "] " + "NNN%" = 7 fixed, plus "  " + FMT + " left"
+  local inner=$(( w - 14 - ${#FMT} ))
+  local tail=" left"
+  if (( inner < 6 )); then
+    tail=""
+    inner=$(( w - 9 - ${#FMT} ))
+  fi
+  if (( inner < 3 )); then
+    printf -v PBAR '%s%s' "$FMT" "$tail"
+    return
+  fi
+
+  local filled=$(( inner * pct / 1000 ))
+  (( filled > inner )) && filled=inner
+  (( filled < 0 )) && filled=0
+  rep '#' "$filled"; local f=$REP
+  rep '-' "$(( inner - filled ))"; local e=$REP
+  pct_color "$pct"
+  if [[ -n $tail ]]; then
+    printf -v PBAR '[%s%s%s%s%s%s] %3d%%  %s left' \
+      "$PC" "$f" "$C_RESET" "$C_GREY" "$e" "$C_RESET" "$(( pct / 10 ))" "$FMT"
+  else
+    printf -v PBAR '[%s%s%s%s%s%s] %3d%%  %s' \
+      "$PC" "$f" "$C_RESET" "$C_GREY" "$e" "$C_RESET" "$(( pct / 10 ))" "$FMT"
+  fi
+}
+
+set_bar_only() { # set_bar_only WIDTH PCT -> $BARONLY  (progress without the time)
+  local w=$1 pct=$2
+  local inner=$(( w - 7 ))          # [ + bar + ] + space + NNN + %
+  if (( inner < 3 )); then BARONLY=""; return; fi
+  local filled=$(( inner * pct / 1000 ))
+  (( filled > inner )) && filled=inner
+  (( filled < 0 )) && filled=0
+  rep '#' "$filled"; local f=$REP
+  rep '-' "$(( inner - filled ))"; local e=$REP
+  pct_color "$pct"
+  printf -v BARONLY '[%s%s%s%s%s%s] %3d%%' \
+    "$PC" "$f" "$C_RESET" "$C_GREY" "$e" "$C_RESET" "$(( pct / 10 ))"
+}
+
+build_banner() { # build_banner WIDTH -> $BANNER_LINES
+  BANNER_LINES=()
+  if (( $1 < 35 )); then
+    BANNER_LINES=("${C_RED}${C_BOLD}TIME'S UP${C_RESET}")
+    return
+  fi
+  big_text "TIME'S UP"
+  local i
+  for ((i=0; i<5; i++)); do
+    BANNER_LINES+=("${C_RED}${C_BOLD}${BIG_ROWS[i]}${C_RESET}")
+  done
+  BANNER_LINES+=("")
+  BANNER_LINES+=("${C_BOLD}${C_WHITE}time is up${C_RESET}")
+}
+
+wrap_items() { # wrap_items WIDTH ITEM... : space-pack items onto lines in $rows
+  local w=$1
+  shift
+  local cur="" it
+  for it in "$@"; do
+    if [[ -z $cur ]]; then cur=$it
+    elif (( ${#cur} + 2 + ${#it} <= w )); then cur+="  $it"
+    else rows+=("$cur"); cur=$it; fi
+  done
+  [[ -n $cur ]] && rows+=("$cur")
+}
+
+render_help() {
+  local w=$1 h=$2
+  FRAME_LINES=()
+  local -a rows=(
+    "${C_BOLD}ascii-timer $VERSION${C_RESET}"
+    ""
+    "${C_BOLD}KEYS${C_RESET}"
+    "  t / right arrow    next theme"
+    "  T / left arrow     previous theme"
+    "  1 2 3 4            pick a theme"
+    "  space              pause / resume"
+    "  + / -              adjust by one minute"
+    "  r                  restart the timer"
+    "  h                  toggle this help"
+    "  q                  quit"
+    ""
+    "${C_BOLD}THEMES${C_RESET}"
+  )
+  local t nm
+  for t in "${THEMES[@]}"; do
+    printf -v nm '%-10s' "$t"
+    rows+=("  ${C_CYAN}${nm}${C_RESET}${THEME_DESC[$t]}")
+  done
+  rows+=("" "${C_BOLD}PRESETS${C_RESET}")
+  local k
+  for k in $(printf '%s\n' "${!PRESETS[@]}" | sort); do
+    printf -v nm '%-10s' "$k"
+    rows+=("  ${C_YELLOW}${nm}${C_RESET}${PRESETS[$k]}")
+  done
+
+  local maxw=0 s
+  local -a pits=() p
+  for p in $(printf '%s\n' "${!PRESETS[@]}" | sort); do pits+=("$p=${PRESETS[$p]}"); done
+
+  local rebuild=0
+  if (( h < 14 )); then
+    rebuild=1
+  else
+    for s in "${rows[@]}"; do vlen "$s"; (( VLEN > maxw )) && maxw=$VLEN; done
+    (( maxw > w )) && rebuild=1
+  fi
+
+  # narrow or short terminal: drop the descriptions and wrap the lists
+  if (( rebuild )); then
+    local title="ascii-timer $VERSION"
+    (( w < ${#title} )) && title="ascii-timer"
+    (( w < 11 )) && title="timer"
+    rows=("${C_BOLD}${title}${C_RESET}" "${C_BOLD}keys${C_RESET}")
+    wrap_items "$w" "t theme" "space pause" "+/- 1min" "r restart" "h help" "q quit"
+    rows+=("${C_BOLD}themes${C_RESET}")
+    wrap_items "$w" "${THEMES[@]}"
+    rows+=("${C_BOLD}presets${C_RESET}")
+    wrap_items "$w" "${pits[@]}"
+    maxw=0
+    for s in "${rows[@]}"; do vlen "$s"; (( VLEN > maxw )) && maxw=$VLEN; done
+  fi
+
+  local n=${#rows[@]}
+  (( n > h )) && n=$h
+  local left=$(( (w - maxw) / 2 ))
+  (( left < 0 )) && left=0
+  local pad
+  printf -v pad '%*s' "$left" ''
+  local top=$(( (h - n) / 2 ))
+  (( top < 0 )) && top=0
+  local i
+  for ((i=0; i<top; i++)); do FRAME_LINES+=(""); done
+  for ((i=0; i<n; i++)); do FRAME_LINES+=("${pad}${rows[i]}"); done
+  finalize_frame "$w" "$h"
+}
+
+render_compact() {
+  local w=$1 h=$2
+  FRAME_LINES=()
+  set_fmt_dur "$REMAIN_MS"
+
+  local hint="t theme  space pause  +/- 1min  r restart  q quit"
+  (( w < ${#hint} + 2 )) && hint="t theme  space pause  q quit"
+  (( w < ${#hint} + 2 )) && hint="t theme  q quit"
+  (( w < ${#hint} + 2 )) && hint=""
+
+  local -a l=()
+  if (( FINISHED || REMAIN_MS <= 0 )); then
+    l=("${C_BOLD}${C_RED}TIME'S UP${C_RESET}")
+    [[ -n $hint ]] && l+=("${C_DIM}${hint}${C_RESET}")
+  else
+    l=("${C_BOLD}${C_RED}${FMT}${C_RESET}")
+    set_bar_only "$w" "$PCT"
+    [[ -n $BARONLY ]] && l+=("$BARONLY")
+    [[ -n $hint ]] && l+=("${C_DIM}${hint}${C_RESET}")
+  fi
+
+  local n=${#l[@]}
+  local top=$(( (h - n) / 2 )) i
+  (( top < 0 )) && top=0
+  for ((i=0; i<top; i++)); do FRAME_LINES+=(""); done
+  for ((i=0; i<n; i++)); do center_line "${l[i]}" "$w"; FRAME_LINES+=("$CENTERED"); done
+  finalize_frame "$w" "$h"
+}
+
+render() {
+  FRAME_LINES=()
+  set_pct "$REMAIN_MS" "$total_ms"
+  set_fmt_dur "$REMAIN_MS"
+
+  if (( HELP )); then render_help "$W" "$H"; return; fi
+
+  if (( H < 12 || W < 40 )); then render_compact "$W" "$H"; return; fi
+
+  local avail=$(( H - 5 ))
+  (( avail < 3 )) && avail=3
+
+  if (( BANNER )); then
+    build_banner "$W"
+    ART_LINES=("${BANNER_LINES[@]}")
+  else
+    theme_"$THEME" "$W" "$avail" "$REMAIN_MS" "$total_ms" "$FRAME"
+  fi
+  if (( ${#ART_LINES[@]} > avail )); then ART_LINES=("${ART_LINES[@]:0:avail}"); fi
+
+  local right="[$THEME]"
+  (( PAUSED )) && right="[$THEME] PAUSED"
+  two_col " $STATUS_LEFT" "$right " "$W"
+  local head=$TWOCOL
+
+  FRAME_LINES+=("${C_DIM}${head}${C_RESET}")
+  FRAME_LINES+=("")
+
+  local i
+  local pad_top=$(( (avail - ${#ART_LINES[@]}) / 2 ))
+  (( pad_top < 0 )) && pad_top=0
+  local bot=$(( avail - pad_top - ${#ART_LINES[@]} ))
+  (( bot < 0 )) && bot=0
+  for ((i=0; i<pad_top; i++)); do FRAME_LINES+=(""); done
+  for ((i=0; i<${#ART_LINES[@]}; i++)); do
+    center_line "${ART_LINES[i]}" "$W"
+    FRAME_LINES+=("$CENTERED")
+  done
+  for ((i=0; i<bot; i++)); do FRAME_LINES+=(""); done
+
+  FRAME_LINES+=("")
+  if (( FINISHED || REMAIN_MS <= 0 )); then
+    center_line "${C_BOLD}press any key to exit${C_RESET}" "$W"
+    FRAME_LINES+=("$CENTERED")
+    center_line "${C_DIM}space pause   r restart   q quit${C_RESET}" "$W"
+    FRAME_LINES+=("$CENTERED")
+  else
+    set_progress "$W" "$PCT"
+    center_line "$PBAR" "$W"; FRAME_LINES+=("$CENTERED")
+    local hint="t/right theme  T/left theme  1-4 pick  space pause  +/- 1min  r restart  h help  q quit"
+    (( W < ${#hint} )) && hint="t theme  space pause  +/- 1min  q quit"
+    (( W < ${#hint} )) && hint="t theme  q quit"
+    center_line "${C_DIM}${hint}${C_RESET}" "$W"; FRAME_LINES+=("$CENTERED")
+  fi
+
+  finalize_frame "$W" "$H"
+}
+
+emit() {
+  local out="$C_RESET"$'\033[H'
+  local n=${#FRAME_LINES[@]} i
+  (( n > H )) && n=$H
+  for ((i=0; i<n; i++)); do
+    out+="${FRAME_LINES[i]}"
+    out+=$'\033[K'
+    (( i < n - 1 )) && out+=$'\r\n'
+  done
+  out+=$'\033[J'
+  printf '%s' "$out"
+}
+
+# ================================================================ interaction
+in_themes() { local t; for t in "${THEMES[@]}"; do [[ $t == $1 ]] && return 0; done; return 1; }
+
+next_theme() {
+  local dir=$1 i cur=0
+  for ((i=0; i<${#THEMES[@]}; i++)); do [[ ${THEMES[i]} == "$THEME" ]] && cur=$i; done
+  local n=$(( (cur + dir + ${#THEMES[@]}) % ${#THEMES[@]} ))
+  THEME=${THEMES[n]}
+  THEME_DIRTY=1
+}
+
+set_theme_num() {
+  local n=$(( $1 - 1 ))
+  (( n >= 0 && n < ${#THEMES[@]} )) || return 0
+  THEME=${THEMES[n]}
+  THEME_DIRTY=1
+}
+
+toggle_pause() {
+  now_ms
+  if (( PAUSED )); then
+    deadline_ms=$(( NOW_MS + PAUSED_REM ))
+    PAUSED=0
+  else
+    PAUSED_REM=$(( deadline_ms - NOW_MS ))
+    (( PAUSED_REM < 0 )) && PAUSED_REM=0
+    PAUSED=1
+  fi
+}
+
+shift_time() { # shift_time MINUTES
+  local delta=$(( $1 * 60000 ))
+  if (( PAUSED )); then
+    PAUSED_REM=$(( PAUSED_REM + delta ))
+    (( PAUSED_REM < 0 )) && PAUSED_REM=0
+  else
+    deadline_ms=$(( deadline_ms + delta ))
+  fi
+  total_ms=$(( total_ms + delta ))
+  (( total_ms < 1000 )) && total_ms=1000
+  UPDATE_STATUS=1
+}
+
+restart() {
+  now_ms
+  deadline_ms=$(( NOW_MS + total_ms ))
+  PAUSED=0; PAUSED_REM=0; FRAME=0
+}
+
+update_status_left() {
+  if [[ -n $TARGET_TIME ]]; then
+    STATUS_LEFT="-> $TARGET_TIME"
+  else
+    local tod
+    tod=$(date -d "@$(( deadline_ms / 1000 ))" +%H:%M 2>/dev/null) || tod="?"
+    STATUS_LEFT="-> ends at $tod"
+  fi
+}
+
+check_size() {
+  local rows cols
+  read -r rows cols < <(stty size 2>/dev/null) || return 0
+  [[ -n ${rows:-} && -n ${cols:-} ]] || return 0
+  if (( cols != W || rows != H )) && (( cols > 0 && rows > 0 )); then
+    W=$cols; H=$rows; RESIZED=1
+  fi
+}
+
+setup_term() {
+  ORIG_STTY=$(stty -g 2>/dev/null || true)
+  stty -icanon -echo min 1 time 0 2>/dev/null || true
+  printf '%s' $'\033[?1049h\033[?25l\033[?7l\033[2J\033[H'
+}
+
+cleanup() {
+  local rc=$?
+  trap - EXIT INT TERM HUP WINCH
+  if (( TUI )); then
+    printf '%s' "$C_RESET"
+    printf '%s' $'\033[?7h\033[?25h\033[?1049l' 2>/dev/null || true
+    [[ -n ${ORIG_STTY:-} ]] && stty "$ORIG_STTY" 2>/dev/null || true
+    (( THEME_DIRTY )) && save_config
+  fi
+  exit "$rc"
+}
+
+flash_on() {
+  printf '%s' $'\033[41m\033[97m\033[1m\033[2J\033[H'
+  center_line " TIME IS UP " "$W"
+  printf '%s' "$CENTERED"
+}
+
+finish_sequence() {
+  local i k
+  if (( COLOR && !NOFLASH )); then
+    for ((i=0; i<FLASH_COUNT; i++)); do
+      flash_on; sleep 0.11
+      render; emit; sleep 0.11
+    done
+  fi
+  while :; do
+    render; emit
+    if read -t 0.6 -rn1 k; then break; fi
+    if (( COLOR && !NOFLASH )); then flash_on; sleep 0.09; fi
+    FRAME=$(( FRAME + 1 ))
+  done
+}
+
+run_tui() {
+  TUI=1
+  setup_term
+  trap 'cleanup' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM HUP
+  trap 'RESIZED=1' WINCH
+
+  local frame_ticks=$(( 20 / FPS ))
+  (( frame_ticks < 1 )) && frame_ticks=1
+
+  local key rest ticks=0 keyed=0
+  render; emit
+
+  while :; do
+    keyed=0
+    if IFS= read -t "$TICK" -rn1 key; then
+      keyed=1
+      case $key in
+        q|Q) QUIT=1 ;;
+        $'\033')
+          if IFS= read -t 0.02 -rn2 rest; then
+            case $rest in
+              '[C') next_theme 1 ;;
+              '[D') next_theme -1 ;;
+            esac
+          fi ;;
+        t|$'\t') next_theme 1 ;;
+        T) next_theme -1 ;;
+        1|2|3|4) set_theme_num "$key" ;;
+        ' ') toggle_pause ;;
+        +|=) shift_time 1 ;;
+        -|_) shift_time -1 ;;
+        h|H) HELP=$(( !HELP )) ;;
+        r|R) restart ;;
+      esac
+    fi
+
+    now_ms
+    if (( PAUSED )); then REMAIN_MS=$PAUSED_REM; else REMAIN_MS=$(( deadline_ms - NOW_MS )); fi
+    (( REMAIN_MS < 0 )) && REMAIN_MS=0
+
+    ticks=$(( ticks + 1 ))
+    (( ticks % 20 == 0 || RESIZED )) && check_size
+    (( !PAUSED && ticks % frame_ticks == 0 )) && FRAME=$(( FRAME + 1 ))
+    if (( UPDATE_STATUS )); then update_status_left; UPDATE_STATUS=0; fi
+
+    (( QUIT )) && break
+    if (( REMAIN_MS <= 0 )); then FINISHED=1; break; fi
+
+    if (( keyed || RESIZED || ticks % frame_ticks == 0 )); then
+      render; emit
+      RESIZED=0
+    fi
+  done
+
+  if (( FINISHED )); then
+    REMAIN_MS=0; PAUSED=0; BANNER=1
+    finish_sequence
+  fi
+}
+
+run_plain() {
+  trap 'printf "\n"; exit 130' INT
+  local cr=$'\r'
+  [[ -t 1 ]] || cr=""
+  while :; do
+    now_ms
+    REMAIN_MS=$(( deadline_ms - NOW_MS ))
+    if (( REMAIN_MS <= 0 )); then
+      printf '\n%s\n' "TIME IS UP"
+      return 0
+    fi
+    set_fmt_dur "$REMAIN_MS"
+    printf '%s%s: %s remaining   ' "$cr" "$PROG" "$FMT"
+    sleep 1
+  done
+}
+
+# ======================================================================== cli
+usage() {
+  local themelist="" t
+  for t in "${THEMES[@]}"; do themelist+="$t | "; done
+  themelist=${themelist% | }
+  cat <<EOF
+$PROG $VERSION - a themed ASCII countdown timer
+
+usage:
+  $PROG 14:30            count down to 14:30 (rolls to tomorrow if past)
+  $PROG 2:30pm
+  $PROG 25m              duration (25 minutes)
+  $PROG 1h30m
+  $PROG 90s
+  $PROG 25               bare number = minutes
+  $PROG pomodoro         named preset
+
+options:
+  --theme NAME           $themelist
+  --at TIME              explicit time of day  (same as the bare argument)
+  --in DUR               explicit duration
+  --plain                plain text mode, no TUI
+  --no-flash             skip the flash burst when time is up
+  --fps N                animation frames per second (1-20, default $FPS)
+  -l, --list             list themes and presets
+  --dry-run              show what would run, then exit
+  -h, --help             this text
+  -V, --version          version
+
+keys while running:
+  t / right arrow        next theme
+  T / left arrow         previous theme
+  1 2 3 4                choose a theme
+  space                  pause / resume
+  + / -                  add or remove one minute
+  r                      restart
+  h                      help overlay
+  q                      quit
+
+presets and settings live in ${CONFIG_FILE}
+EOF
+}
+
+list_all() {
+  printf '%s\n\n' "${C_BOLD}themes${C_RESET}"
+  local t
+  for t in "${THEMES[@]}"; do
+    printf '  %-11s %s\n' "$t" "${THEME_DESC[$t]}"
+  done
+  printf '\n%s\n\n' "${C_BOLD}presets${C_RESET}"
+  local k
+  for k in $(printf '%s\n' "${!PRESETS[@]}" | sort); do
+    printf '  %-11s %s\n' "$k" "${PRESETS[$k]}"
+  done
+  printf '\n%s %s\n' "${C_DIM}config:${C_RESET}" "$CONFIG_FILE"
+}
+
+parse_args() {
+  while (( $# )); do
+    case $1 in
+      --theme)     [[ -n ${2:-} ]] || die "--theme needs a value"; THEME=$2; THEME_DIRTY=1; shift 2 ;;
+      --theme=*)   THEME=${1#*=}; THEME_DIRTY=1; shift ;;
+      --at)        [[ -n ${2:-} ]] || die "--at needs a value"; AT_SPEC=$2; shift 2 ;;
+      --at=*)      AT_SPEC=${1#*=}; shift ;;
+      --in)        [[ -n ${2:-} ]] || die "--in needs a value"; IN_SPEC=$2; shift 2 ;;
+      --in=*)      IN_SPEC=${1#*=}; shift ;;
+      --fps)       [[ -n ${2:-} ]] || die "--fps needs a value"; FPS=$2; shift 2 ;;
+      --fps=*)     FPS=${1#*=}; shift ;;
+      --size)      [[ -n ${2:-} ]] || die "--size needs a value"; SIZE=$2; shift 2 ;;
+      --size=*)    SIZE=${1#*=}; shift ;;
+      --remaining) REM_OVERRIDE=$2; shift 2 ;;
+      --total)     TOT_OVERRIDE=$2; shift 2 ;;
+      --frame)     FRAME_OVERRIDE=$2; shift 2 ;;
+      --plain)     PLAIN=1; shift ;;
+      --no-flash)  NOFLASH=1; shift ;;
+      --dry-run)   DRY=1; shift ;;
+      --render-once) RENDER_ONCE=1; shift ;;
+      -l|--list)   LIST=1; shift ;;
+      -V|--version) printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
+      -h|--help)   usage; exit 0 ;;
+      -*)          die "unknown option: $1 (try --help)" ;;
+      *)           if [[ -z $TARGET_SPEC ]]; then TARGET_SPEC=$1; else die "unexpected argument: $1"; fi; shift ;;
+    esac
+  done
+  [[ $FPS =~ ^[0-9]+$ ]] || die "--fps must be a number"
+  (( FPS < 1 )) && FPS=1
+  (( FPS > 20 )) && FPS=20
+}
+
+do_render_once() {
+  local w=${SIZE%x*} h=${SIZE#*x}
+  [[ $w =~ ^[0-9]+$ ]] || w=80
+  [[ $h =~ ^[0-9]+$ ]] || h=24
+  W=$w; H=$h
+  total_ms=${TOT_OVERRIDE:-300000}
+  REMAIN_MS=${REM_OVERRIDE:-$total_ms}
+  FRAME=${FRAME_OVERRIDE:-0}
+  [[ -z $STATUS_LEFT ]] && STATUS_LEFT="-> 14:30 today"
+  render
+  local i
+  for ((i=0; i<${#FRAME_LINES[@]}; i++)); do printf '%s\n' "${FRAME_LINES[i]}"; done
+}
+
+main() {
+  load_config
+  parse_args "$@"
+  setup_colors
+  init_glyphs
+
+  if (( LIST )); then list_all; exit 0; fi
+
+  if ! in_themes "$THEME"; then
+    printf '%s: unknown theme %s, using digital (themes: %s)\n' \
+      "$PROG" "'$THEME'" "${THEMES[*]}" >&2
+    THEME=digital
+  fi
+
+  if (( RENDER_ONCE )); then do_render_once; exit 0; fi
+
+  local spec=$TARGET_SPEC
+  [[ -n $AT_SPEC ]] && spec=$AT_SPEC
+  [[ -n $IN_SPEC ]] && spec=$IN_SPEC
+  [[ -n $spec ]] || die "no time given (try: $PROG --help)"
+
+  parse_spec "$spec"
+  now_ms
+
+  TARGET_TIME=""
+  if [[ $P_KIND == clock ]]; then
+    TARGET_TIME="$P_DESC"
+    deadline_ms=$(( P_EPOCH * 1000 ))
+  else
+    deadline_ms=$(( NOW_MS + P_SECS * 1000 ))
+  fi
+  total_ms=$(( deadline_ms - NOW_MS ))
+  (( total_ms < 1000 )) && total_ms=1000
+  REMAIN_MS=$total_ms
+  update_status_left
+
+  if (( DRY )); then
+    printf 'kind:      %s\n' "$P_KIND"
+    printf 'target:    %s\n' "${TARGET_TIME:-ends at $(date -d "@$(( deadline_ms / 1000 ))" +%H:%M)}"
+    printf 'deadline:  %s\n' "$(date -d "@$(( deadline_ms / 1000 ))" '+%Y-%m-%d %H:%M:%S')"
+    printf 'remaining: %s s\n' "$(( total_ms / 1000 ))"
+    printf 'theme:     %s\n' "$THEME"
+    exit 0
+  fi
+
+  if (( PLAIN )) || [[ ! -t 0 || ! -t 1 ]]; then
+    run_plain
+    exit 0
+  fi
+
+  run_tui
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main "$@"
+fi
+

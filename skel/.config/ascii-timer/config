@@ -1,0 +1,9 @@
+# ascii-timer config
+theme=hourglass
+fps=5
+flash=5
+break=5m
+coffee=4m
+nap=20m
+pomodoro=25m
+tea=3m

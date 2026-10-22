@@ -1,5 +1,12 @@
 FROM artixlinux/artixlinux:base-runit
 
+# Prefer the mirrors that are reliable from this build network.
+RUN printf '%s\n' \
+        'Server = https://mirrors.dotsrc.org/artix-linux/repos/$repo/os/$arch' \
+        'Server = https://mirror.clarkson.edu/artix-linux/repos/$repo/os/$arch' \
+        'Server = https://mirror1.artixlinux.org/repos/$repo/os/$arch' \
+        > /etc/pacman.d/mirrorlist
+
 # archiso and arch-install-scripts are not in Artix repos.
 # Section must be named [extra] — pacman fetches <section>.db from the server,
 # so a custom name like [arch-extra] would request a non-existent arch-extra.db.

@@ -4,13 +4,14 @@ FROM archlinux:latest
 # The archlinux Docker image ships with an uninitialized keyring.
 RUN pacman-key --init && \
     pacman-key --populate archlinux && \
-    pacman -Syu --noconfirm
+    pacman -Syyu --noconfirm
 
 RUN pacman -S --noconfirm --needed \
         archiso \
         dosfstools \
         e2fsprogs \
         libisoburn \
+        mtools \
         squashfs-tools \
         syslinux \
         mkinitcpio \

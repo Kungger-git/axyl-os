@@ -5,26 +5,35 @@ if [[ $EUID -ne 0 ]]; then
     echo "Run as root: sudo axyl-setup" >&2
     exit 1
 fi
-
 REALUSER="${SUDO_USER:-}"
-if [[ -z "$REALUSER" ]]; then
-    echo "Cannot determine target user. Run with sudo, not directly as root." >&2
+if [[ -z "$REALUSER" || "$REALUSER" == "root" ]]; then
+    echo "Run with sudo from your normal user account." >&2
     exit 1
 fi
 
 echo "==> Axyl post-install setup (Artix / runit)"
 
-echo "  -> Updating XDG user directories..."
-sudo -u "$REALUSER" xdg-user-dirs-update
+# Installed systems use the greeter, not the live ISO autologin.
+cat > /etc/greetd/config.toml <<'EOF'
+[terminal]
+vt = 7
 
-echo "  -> Enabling greetd service..."
-if [ -d /etc/runit/sv/greetd ]; then
-    ln -sf /etc/runit/sv/greetd /etc/runit/runsvdir/default/greetd
-    echo "  greetd enabled. It will start on next boot."
-else
-    echo "  Note: /etc/runit/sv/greetd not found."
-    echo "  Install greetd-runit and run: ln -s /etc/runit/sv/greetd /etc/runit/runsvdir/default/"
+[default_session]
+command = "agreety --cmd /usr/local/bin/start-hyprland-session"
+user = "greeter"
+EOF
+
+RUNIT_DEFAULT="/etc/runit/runsvdir/default"
+mkdir -p "$RUNIT_DEFAULT"
+for svc in dbus elogind NetworkManager greetd acpid bluetoothd; do
+    [[ -d "/etc/runit/sv/$svc" ]] && ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
+done
+
+sudo -u "$REALUSER" xdg-user-dirs-update
+if [[ -x "/home/$REALUSER/.config/theme/render.py" ]]; then
+    sudo -u "$REALUSER" env HOME="/home/$REALUSER" \
+        "/home/$REALUSER/.config/theme/render.py" || true
 fi
 
 echo ""
-echo "Setup complete. Reboot to start your Axyl desktop."
+echo "Setup complete. Reboot to start the Hyprland desktop."

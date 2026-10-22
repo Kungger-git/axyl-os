@@ -1,17 +1,27 @@
-case $- in *i*) ;; *) return ;; esac
+#
+# ~/.bashrc
+#
 
-# Claude-palette prompt: coral user, muted separator, accent prompt char
-PS1='\[\e[38;2;217;119;87m\]\u\[\e[38;2;110;114;144m\]@\h \[\e[38;2;230;225;216m\]\W\[\e[38;2;217;119;87m\] \$\[\e[0m\] '
+# If not running interactively, don't do anything
+[[ $- != *i* ]] && return
 
-alias ls='ls --color=auto'
-alias ll='ls -alFh'
-alias la='ls -A'
-alias l='ls -CF'
-alias grep='grep --color=auto'
-alias vi='nvim'
-alias vim='nvim'
-
+export PATH="$HOME/.local/bin:$PATH"
 export EDITOR=nvim
 export VISUAL=nvim
-export BROWSER=firefox
-export TERM=xterm-256color
+
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+alias ll='ls -alFh'
+alias la='ls -A'
+alias l='ls -rthla'
+alias vi='nvim'
+alias vim='nvim'
+alias brave='brave-wayland'
+alias files='dolphin'
+
+# Starship prompt when installed
+if command -v starship >/dev/null 2>&1; then
+  eval "$(starship init bash)"
+else
+  PS1='[\u@\h \W]\$ '
+fi

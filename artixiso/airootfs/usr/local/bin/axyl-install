@@ -1,91 +1,480 @@
 #!/usr/bin/env bash
+# Axyl Linux installer -- full-disk ext4, UEFI or BIOS.
+#
+# Interactive:
+#     sudo axyl-install
+#
+# Unattended (used for VM verification):
+#     sudo axyl-install --auto --disk /dev/sda --yes --password '...'
+#
+# The target disk is erased. USB targets are refused unless --allow-usb is
+# given, and the disk hosting the live session is always refused.
 set -euo pipefail
+umask 022
 
-RESET='\e[0m'
+VARIANT="$(cat /etc/axyl/variant 2>/dev/null || echo arch)"
+case "$VARIANT" in
+    arch)  OS_LABEL="Arch / systemd" ;;
+    artix) OS_LABEL="Artix / runit" ;;
+    *)     echo "Unknown Axyl variant: $VARIANT" >&2; exit 1 ;;
+esac
+
+PKG_LIST="/usr/local/share/axyl/packages.target"
+BRAVE_GLOB="/usr/local/share/axyl/brave-bin-*.pkg.tar.zst"
+START_WRAPPER="/usr/local/bin/start-hyprland-session"
+PACSTRAP="/usr/bin/pacstrap"
+GENFSTAB="/usr/bin/genfstab"
+ARCH_CHROOT="/usr/bin/arch-chroot"
+
+# Execute the helper scripts through bash. On the Artix live overlay a direct
+# exec of a script in the squashfs lower layer can return EACCES even though the
+# file is mode 755; bash reads the script normally.
+run_pacstrap()      { bash "$PACSTRAP" "$@"; }
+run_genfstab()      { bash "$GENFSTAB" "$@"; }
+run_arch_chroot()   { bash "$ARCH_CHROOT" "$@"; }
+
 ACCENT='\e[38;2;217;119;87m'
+GREEN='\e[38;2;80;250;123m'
+RED='\e[38;2;255;85;85m'
 MUTED='\e[38;2;110;114;144m'
 FG='\e[38;2;230;225;216m'
-RED='\e[38;2;255;85;85m'
-GREEN='\e[38;2;80;250;123m'
+RESET='\e[0m'
 
-clear
+info() { echo -e "${ACCENT}==> ${RESET}$*"; }
+ok()   { echo -e "${GREEN} ok ${RESET}$*"; }
+warn() { echo -e "${RED} !  ${RESET}$*" >&2; }
+die()  { echo -e "${RED}ERR ${RESET}$*" >&2; exit 1; }
+note() { echo -e "${MUTED}    $*${RESET}"; }
 
+AUTO=0
+ASSUME_YES=0
+ALLOW_USB=0
+DISK=""
+PASSWORD="${AXYL_PASSWORD:-}"
+TARGET_USER="${AXYL_USER:-axyl}"
+TARGET_HOSTNAME="${AXYL_HOSTNAME:-axyl}"
+TARGET_TIMEZONE="${AXYL_TIMEZONE:-Asia/Manila}"
+UEFI=0
+DISKS=()
+
+usage() {
+    cat <<EOF
+Axyl Linux installer ($OS_LABEL)
+
+Usage: sudo axyl-install [options]
+
+  --auto                 unattended mode (requires --disk and --yes)
+  --disk DEVICE          target disk, e.g. /dev/sda or /dev/nvme0n1
+  --password PASS        password for the new user (or use AXYL_PASSWORD)
+  --yes, -y              skip the erase confirmation
+  --allow-usb            permit a USB target (refused by default)
+  --user NAME            account name (default: axyl)
+  --hostname NAME        hostname (default: axyl)
+  --timezone ZONE        timezone (default: Asia/Manila)
+  --help                 show this help
+
+Interactive mode lists internal disks, asks for a password, and requires
+the word ERASE before partitioning. The disk is erased completely.
+EOF
+}
+
+while (($#)); do
+    case "$1" in
+        --auto) AUTO=1 ;;
+        --yes|-y) ASSUME_YES=1 ;;
+        --allow-usb) ALLOW_USB=1 ;;
+        --disk) DISK="${2:-}"; shift ;;
+        --password) PASSWORD="${2:-}"; shift ;;
+        --user) TARGET_USER="${2:-}"; shift ;;
+        --hostname) TARGET_HOSTNAME="${2:-}"; shift ;;
+        --timezone) TARGET_TIMEZONE="${2:-}"; shift ;;
+        --help|-h) usage; exit 0 ;;
+        *) die "Unknown argument: $1" ;;
+    esac
+    shift
+done
+
+[[ $EUID -eq 0 ]] || die "Run as root: sudo axyl-install"
+[[ -f "$PKG_LIST" ]] || die "Missing package manifest: $PKG_LIST"
+[[ -x "$START_WRAPPER" ]] || die "Missing session wrapper: $START_WRAPPER"
+[[ "$TARGET_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "Invalid user name: $TARGET_USER"
+[[ "$TARGET_USER" != "root" ]] || die "Refusing to create the root account as the desktop user"
+[[ "$TARGET_HOSTNAME" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] \
+    || die "Invalid hostname: $TARGET_HOSTNAME"
+[[ -f "/usr/share/zoneinfo/$TARGET_TIMEZONE" ]] \
+    || die "Invalid timezone: $TARGET_TIMEZONE"
+
+if [[ -z "$PASSWORD" ]]; then
+    [[ -t 0 ]] || die "No password supplied; use --password or AXYL_PASSWORD"
+    read -rsp "Password for $TARGET_USER: " PASSWORD; echo
+    read -rsp "Confirm password: " PASSWORD_CONFIRM; echo
+    [[ "$PASSWORD" == "$PASSWORD_CONFIRM" ]] || die "Passwords do not match"
+fi
+[[ -n "$PASSWORD" ]] || die "Password must not be empty"
+[[ "$PASSWORD" != *$'\n'* ]] || die "Password must not contain a newline"
+[[ "$PASSWORD" != *:* ]] || die "Password must not contain a colon"
+if (( ${#PASSWORD} < 8 )); then
+    warn "Password is shorter than 8 characters"
+fi
+
+root_disk() {
+    local src pk
+    # The live root is an overlay, so also inspect the ISO mount. This makes
+    # the live USB itself impossible to select, even with --allow-usb.
+    for src in \
+        "$(findmnt -n -o SOURCE /run/archiso/bootmnt 2>/dev/null || true)" \
+        "$(findmnt -n -o SOURCE /run/archiso/img_dev 2>/dev/null || true)" \
+        "$(findmnt -n -o SOURCE / 2>/dev/null || true)"; do
+        [[ -b "$src" ]] || continue
+        pk="$(lsblk -no PKNAME "$src" 2>/dev/null | head -n1 | tr -d '[:space:]')"
+        if [[ -n "$pk" ]]; then
+            printf '/dev/%s\n' "$pk"
+        else
+            printf '%s\n' "$src"
+        fi
+        return 0
+    done
+}
+
+is_usb() {
+    [[ "$(lsblk -dno TRAN "$1" 2>/dev/null | tr -d '[:space:]')" == "usb" ]]
+}
+
+validate_disk() {
+    [[ -b "$DISK" ]] || die "Not a block device: $DISK"
+    [[ "$(lsblk -dno TYPE "$DISK" 2>/dev/null | tr -d '[:space:]')" == "disk" ]] \
+        || die "Refusing non-whole-disk target: $DISK"
+    [[ "$DISK" != "$(root_disk)" ]] || die "Refusing to install over the live/root disk"
+
+    if is_usb "$DISK" && (( ! ALLOW_USB )); then
+        die "Refusing USB target $DISK (use --allow-usb only if you mean it)"
+    fi
+
+    local bytes
+    bytes="$(blockdev --getsize64 "$DISK" 2>/dev/null || echo 0)"
+    (( bytes >= 8 * 1024 * 1024 * 1024 )) \
+        || die "Target disk is smaller than 8 GiB"
+
+    if lsblk -no MOUNTPOINTS "$DISK" 2>/dev/null | grep -q '[^[:space:]]'; then
+        die "Unmount all partitions on $DISK before installing"
+    fi
+}
+
+list_disks() {
+    local name size type tran model dev
+    DISKS=()
+    while read -r name size type tran model; do
+        [[ "$type" == "disk" ]] || continue
+        case "$name" in loop*|sr*|zram*) continue ;; esac
+        dev="/dev/$name"
+        [[ "$dev" == "$(root_disk)" ]] && continue
+        if is_usb "$dev" && (( ! ALLOW_USB )); then
+            continue
+        fi
+        DISKS+=("$dev")
+        printf '  %2d) %-14s %-8s %-6s %s\n' \
+            "${#DISKS[@]}" "$dev" "$size" "${tran:--}" "${model:-Unknown}"
+    done < <(lsblk -dno NAME,SIZE,TYPE,TRAN,MODEL 2>/dev/null)
+}
+
+choose_disk() {
+    local choice
+    info "Available internal disks:"
+    list_disks
+    [[ ${#DISKS[@]} -gt 0 ]] || die "No usable disks found"
+    echo ""
+    echo -ne "${ACCENT}Select disk [1-${#DISKS[@]}]: ${RESET}"
+    read -r choice
+    [[ "$choice" =~ ^[0-9]+$ ]] || die "Invalid selection"
+    (( choice >= 1 && choice <= ${#DISKS[@]} )) || die "Invalid selection"
+    DISK="${DISKS[$((choice - 1))]}"
+    validate_disk
+}
+
+confirm_erase() {
+    if (( AUTO )); then
+        (( ASSUME_YES )) || die "--auto requires --yes after you have checked --disk"
+        return
+    fi
+    if (( ASSUME_YES )); then
+        return
+    fi
+    echo ""
+    warn "This will ERASE $DISK completely."
+    echo -ne "${ACCENT}Type ERASE to continue: ${RESET}"
+    local answer
+    read -r answer
+    [[ "$answer" == "ERASE" ]] || die "Aborted"
+}
+
+wait_network() {
+    command -v nmcli >/dev/null 2>&1 || return 0
+    info "Waiting for NetworkManager..."
+    local i
+    for i in {1..30}; do
+        if nmcli -t -f STATE general status 2>/dev/null | grep -q '^connected'; then
+            ok "Network connected"
+            return 0
+        fi
+        sleep 1
+    done
+    warn "No network connection detected; run_pacstrap may fail."
+}
+
+partition_disk() {
+    info "Partitioning $DISK..."
+    if mountpoint -q /mnt; then
+        die "/mnt is already mounted"
+    fi
+
+    wipefs -af "$DISK" >/dev/null 2>&1 || true
+    sgdisk --zap-all "$DISK" >/dev/null
+    if (( UEFI )); then
+        sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI" "$DISK" >/dev/null
+    else
+        sgdisk -n 1:0:+1M -t 1:ef02 -c 1:"BIOS boot" "$DISK" >/dev/null
+    fi
+    sgdisk -n 2:0:0 -t 2:8300 -c 2:"Axyl root" "$DISK" >/dev/null
+    partprobe "$DISK" 2>/dev/null || true
+    udevadm settle 2>/dev/null || true
+    sleep 1
+
+    local part1 part2
+    if [[ "$DISK" =~ [0-9]$ ]]; then
+        part1="${DISK}p1"; part2="${DISK}p2"
+    else
+        part1="${DISK}1"; part2="${DISK}2"
+    fi
+    [[ -b "$part1" && -b "$part2" ]] || die "Partitions did not appear"
+
+    if (( UEFI )); then
+        mkfs.fat -F32 -n EFI "$part1"
+    fi
+    mkfs.ext4 -F -L AXYL "$part2"
+
+    mount "$part2" /mnt
+    mkdir -p /mnt/boot
+    if (( UEFI )); then
+        mount "$part1" /mnt/boot
+    fi
+    ok "Mounted $part2 at /mnt"
+}
+
+install_packages() {
+    local pkgs=()
+    mapfile -t pkgs < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$PKG_LIST")
+    (( ${#pkgs[@]} > 0 )) || die "Package manifest is empty"
+
+    info "Installing ${#pkgs[@]} packages..."
+    if ! run_pacstrap -K /mnt "${pkgs[@]}"; then
+        warn "run_pacstrap -K failed; retrying without keyring initialization"
+        run_pacstrap /mnt "${pkgs[@]}"
+    fi
+    run_genfstab -U /mnt >> /mnt/etc/fstab
+    ok "Base system installed"
+}
+
+copy_payload() {
+    info "Copying Axyl configuration and Brave..."
+    install -d /mnt/etc/skel /mnt/usr/local/bin /mnt/var/cache/axyl /mnt/etc/axyl /mnt/etc/greetd
+    cp -a /etc/skel/. /mnt/etc/skel/
+
+    install -Dm755 "$START_WRAPPER" /mnt/usr/local/bin/start-hyprland-session
+    install -Dm755 /usr/local/bin/brave-wayland /mnt/usr/local/bin/brave-wayland
+    install -Dm755 /usr/local/bin/axyl-setup /mnt/usr/local/bin/axyl-setup
+
+    compgen -G "$BRAVE_GLOB" >/dev/null || die "Vendored Brave package is missing"
+    cp $BRAVE_GLOB /mnt/var/cache/axyl/
+
+    rm -f /mnt/etc/os-release
+    install -Dm644 /etc/os-release /mnt/etc/os-release
+    install -Dm644 /etc/axyl/variant /mnt/etc/axyl/variant
+    install -Dm644 /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+    install -Dm644 /etc/issue /mnt/etc/issue
+    [[ -f /etc/locale.conf ]] && install -Dm644 /etc/locale.conf /mnt/etc/locale.conf
+
+    # Make the installed initramfs boot reliably under QEMU/VM disks and GPU.
+    if [[ -f /mnt/etc/mkinitcpio.conf ]]; then
+        sed -i 's/^MODULES=.*/MODULES=(virtio_blk virtio_pci virtio_net virtio_gpu)/' \
+            /mnt/etc/mkinitcpio.conf
+    fi
+
+    cat > /mnt/etc/greetd/config.toml <<'EOF'
+[terminal]
+vt = 7
+
+[default_session]
+command = "agreety --cmd /usr/local/bin/start-hyprland-session"
+user = "greeter"
+EOF
+
+    cat > /mnt/etc/default/grub <<'EOF'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=3
+GRUB_DISTRIBUTOR="Axyl Linux"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+GRUB_CMDLINE_LINUX=""
+EOF
+
+    printf '%s\n' "$TARGET_HOSTNAME" > /mnt/etc/hostname
+    cat > /mnt/etc/hosts <<EOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $TARGET_HOSTNAME.localdomain $TARGET_HOSTNAME
+EOF
+
+    echo 'en_US.UTF-8 UTF-8' > /mnt/etc/locale.gen
+    echo 'LANG=en_US.UTF-8' > /mnt/etc/locale.conf
+    echo 'KEYMAP=us' > /mnt/etc/vconsole.conf
+    ok "Payload copied"
+}
+
+configure_system() {
+    info "Configuring users, locale, services..."
+
+    run_arch_chroot /mnt bash -c '
+        for g in wheel audio video render input storage optical network; do
+            getent group "$g" >/dev/null || groupadd "$g"
+        done
+    '
+
+    run_arch_chroot /mnt bash -c 'getent group greeter >/dev/null || groupadd -r greeter; getent passwd greeter >/dev/null || useradd -r -M -d /var/lib/greetd -s /usr/bin/nologin greeter'
+    run_arch_chroot /mnt useradd -m -G wheel,audio,video,render,input,storage,optical,network \
+        -s /bin/zsh "$TARGET_USER"
+    printf '%s:%s\n' "$TARGET_USER" "$PASSWORD" | run_arch_chroot /mnt chpasswd
+    run_arch_chroot /mnt usermod -L root >/dev/null 2>&1 || true
+
+    printf '%%wheel ALL=(ALL:ALL) ALL\n' > /mnt/etc/sudoers.d/10-wheel
+    chmod 0440 /mnt/etc/sudoers.d/10-wheel
+    chown root:root /mnt/etc/sudoers.d/10-wheel
+
+    run_arch_chroot /mnt ln -sf "/usr/share/zoneinfo/$TARGET_TIMEZONE" /etc/localtime
+    run_arch_chroot /mnt hwclock --systohc >/dev/null 2>&1 || true
+    run_arch_chroot /mnt locale-gen
+    run_arch_chroot /mnt sudo -u "$TARGET_USER" -H xdg-user-dirs-update
+    if [[ -x "/mnt/home/$TARGET_USER/.config/theme/render.py" ]]; then
+        run_arch_chroot /mnt sudo -u "$TARGET_USER" -H \
+            env HOME="/home/$TARGET_USER" \
+            "/home/$TARGET_USER/.config/theme/render.py" || true
+    fi
+    run_arch_chroot /mnt fc-cache -f >/dev/null 2>&1 || true
+
+    info "Installing Brave into the target..."
+    run_arch_chroot /mnt sh -c '
+        if ! pacman -U --noconfirm /var/cache/axyl/brave-bin-*.pkg.tar.zst; then
+            echo "WARNING: Brave install failed with CheckSpace; retrying without it" >&2
+            sed "s/^[[:space:]]*CheckSpace/# CheckSpace/" /etc/pacman.conf > /tmp/pacman-no-check.conf
+            pacman -U --noconfirm --config /tmp/pacman-no-check.conf /var/cache/axyl/brave-bin-*.pkg.tar.zst
+            rm -f /tmp/pacman-no-check.conf
+        fi
+    '
+
+    if [[ "$VARIANT" == "arch" ]]; then
+        run_arch_chroot /mnt systemctl enable \
+            NetworkManager.service greetd.service acpid.service bluetooth.service getty@tty2.service
+        run_arch_chroot /mnt systemctl set-default graphical.target
+    else
+        install -d /mnt/etc/runit/runsvdir/default
+        for svc in dbus elogind NetworkManager greetd acpid bluetoothd agetty-tty2; do
+            if [[ -d "/mnt/etc/runit/sv/$svc" ]]; then
+                ln -sf "/etc/runit/sv/$svc" "/mnt/etc/runit/runsvdir/default/$svc"
+            else
+                warn "runit service not found: $svc"
+            fi
+        done
+        [[ -d /mnt/etc/runit/sv/greetd ]] || die "greetd-runit is missing"
+    fi
+    ok "System configured"
+}
+
+install_initramfs() {
+    info "Generating initramfs..."
+    if [[ "$VARIANT" == "arch" ]]; then
+        run_arch_chroot /mnt mkinitcpio -P
+    else
+        run_arch_chroot /mnt mkinitcpio \
+            -c /etc/mkinitcpio.conf \
+            -k /boot/vmlinuz-linux \
+            -g /boot/initramfs-linux.img
+    fi
+}
+
+install_bootloader() {
+    if (( UEFI )); then
+        info "Installing GRUB (UEFI)..."
+        run_arch_chroot /mnt grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot \
+            --bootloader-id=Axyl \
+            --recheck
+    else
+        info "Installing GRUB (BIOS)..."
+        run_arch_chroot /mnt grub-install --target=i386-pc --recheck "$DISK"
+    fi
+    run_arch_chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    ok "Bootloader installed"
+}
+
+cleanup() {
+    if mountpoint -q /mnt; then
+        umount -R /mnt 2>/dev/null || umount -Rl /mnt 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+if [[ -t 1 && "$AUTO" == 0 ]]; then
+    clear
+fi
 echo -e "${ACCENT}"
-cat << 'BANNER'
+cat <<'BANNER'
      _   __  ____  __
     / | / / / /\ \/ /
-   /  |/ / / /  \  /
+   /  /|/ / / /  \  /
   / /|  / / /___/ /
  /_/ |_/_/_____/_/
 BANNER
-echo -e "${MUTED}         Artix Linux / runit${RESET}"
+echo -e "${MUTED}         Axyl Linux Installer -- ${OS_LABEL}${RESET}"
 echo ""
 
-echo -e "${MUTED}Waiting for network...${RESET}"
-timeout=30; count=0
-while ! nmcli -t -f STATE general status 2>/dev/null | grep -q "connected"; do
-    sleep 1; count=$((count + 1))
-    [ $count -ge $timeout ] && {
-        echo -e "${RED}Network not available. Connect manually in a shell.${RESET}"; break; }
-done
-nmcli -t -f STATE general status 2>/dev/null | grep -q "connected" \
-    && echo -e "${GREEN}Network connected.${RESET}"
+if [[ -d /sys/firmware/efi ]]; then
+    UEFI=1
+fi
+if (( UEFI )); then
+    note "Firmware: UEFI"
+else
+    note "Firmware: BIOS/legacy"
+fi
+
+wait_network
 echo ""
 
-echo -e "${ACCENT}┌─────────────────────────────────┐${RESET}"
-echo -e "${ACCENT}│       Axyl Linux Installer       │${RESET}"
-echo -e "${ACCENT}│         (Artix / runit)          │${RESET}"
-echo -e "${ACCENT}└─────────────────────────────────┘${RESET}"
-echo ""
-echo -e "  ${ACCENT}[1]${FG} Installation steps  ${MUTED}(pacstrap guide)${RESET}"
-echo -e "  ${ACCENT}[2]${FG} Open a shell  ${MUTED}(manual / advanced)${RESET}"
-echo -e "  ${ACCENT}[3]${FG} Exit to desktop${RESET}"
-echo ""
-echo -ne "${ACCENT}Choice [1-3]: ${RESET}"
-read -r choice
+if [[ -n "$DISK" ]]; then
+    validate_disk
+else
+    (( AUTO )) && die "--auto requires --disk DEVICE"
+    choose_disk
+fi
 
-case "$choice" in
-    1)
-        echo ""
-        echo -e "${ACCENT}Artix Linux Installation Guide${RESET}"
-        echo -e "${MUTED}──────────────────────────────${RESET}"
-        echo -e "${FG}1. Partition your disk:${RESET}"
-        echo -e "${MUTED}   cfdisk /dev/sdX${RESET}"
-        echo ""
-        echo -e "${FG}2. Format and mount:${RESET}"
-        echo -e "${MUTED}   mkfs.ext4 /dev/sdX2${RESET}"
-        echo -e "${MUTED}   mount /dev/sdX2 /mnt${RESET}"
-        echo ""
-        echo -e "${FG}3. Install base system (pacstrap uses live Artix repos):${RESET}"
-        echo -e "${MUTED}   pacstrap /mnt base base-devel runit elogind-runit linux linux-firmware${RESET}"
-        echo ""
-        echo -e "${FG}4. Generate fstab:${RESET}"
-        echo -e "${MUTED}   genfstab -U /mnt >> /mnt/etc/fstab${RESET}"
-        echo ""
-        echo -e "${FG}5. Chroot and configure:${RESET}"
-        echo -e "${MUTED}   arch-chroot /mnt${RESET}"
-        echo ""
-        echo -e "${MUTED}Full guide: wiki.artixlinux.org/base/Installation${RESET}"
-        echo ""
-        echo -e "${MUTED}Opening shell. Type 'exit' to return.${RESET}"
-        echo -e "${MUTED}Credentials: user=axyl  password=axyl${RESET}"
-        echo ""
-        bash
-        ;;
-    2)
-        echo ""
-        echo -e "${MUTED}Opening shell. Type 'exit' to return to the desktop.${RESET}"
-        echo -e "${MUTED}Credentials: user=axyl  password=axyl${RESET}"
-        echo ""
-        bash
-        ;;
-    3)
-        ;;
-    *)
-        echo -e "${RED}Invalid choice.${RESET}"
-        sleep 1
-        exec "$0"
-        ;;
-esac
+confirm_erase
 
-touch "$HOME/.axyl-install-done" 2>/dev/null || true
+info "Installing Axyl Linux to $DISK"
+info "User: $TARGET_USER    Hostname: $TARGET_HOSTNAME    Timezone: $TARGET_TIMEZONE"
+echo ""
+
+partition_disk
+install_packages
+copy_payload
+configure_system
+install_initramfs
+install_bootloader
+
+sync
+info "Unmounting target..."
+umount -R /mnt 2>/dev/null || umount -Rl /mnt 2>/dev/null || true
+if mountpoint -q /mnt; then
+    warn "Target is still mounted; a lazy unmount was requested. Reboot to finish."
+fi
+ok "Installation complete."
+echo ""
+note "Remove the live medium and reboot into $TARGET_HOSTNAME."
+note "Log in as $TARGET_USER with the password you supplied."
