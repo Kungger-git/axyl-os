@@ -49,7 +49,7 @@ _hyprland_start() {
   if [[ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]] || pgrep -x Hyprland >/dev/null 2>&1; then
     zle backward-delete-char
   else
-    BUFFER='Hyprland'
+    BUFFER='start-hyprland'
     zle accept-line
   fi
 }

@@ -42,12 +42,12 @@ hypridle
 hyprshot
 hyprpicker
 rofi
-rofi-emoji
 kitty
 
 pipewire
 pipewire-alsa
 pipewire-pulse
+pipewire-audio
 wireplumber
 gst-plugin-pipewire
 pavucontrol
@@ -56,6 +56,8 @@ brightnessctl
 libnotify
 
 networkmanager
+iw
+wireless-regdb
 bluez
 bluez-utils
 openssh
@@ -144,8 +146,6 @@ grim
 slurp
 
 udisks2
-acpi
-acpid
 procps-ng
 psmisc
 util-linux

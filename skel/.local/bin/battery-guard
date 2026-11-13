@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""Battery notifications for a dual-battery ThinkPad.
+
+Watches /sys/class/power_supply and sends desktop notifications when:
+
+  * the combined charge drops to 20% while on battery, and
+  * charging stops at the 80% charge limit while on AC.
+
+Low-battery warnings fire once per discharge cycle. Charge-limit warnings fire
+once per AC session. State is kept in $XDG_RUNTIME_DIR so restarting the
+service does not duplicate notifications.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+POWER_SUPPLY = Path("/sys/class/power_supply")
+
+LOW_THRESHOLD = 20.0
+LOW_RESET = 25.0
+LIMIT_THRESHOLD = 80.0
+LIMIT_TOLERANCE = 1.0
+POLL_SECONDS = 30
+
+STATE_PATH = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "battery-guard.state"
+
+# X240: BAT0 is the internal bridge battery, BAT1 the removable one.
+LABELS = {"BAT0": "Internal", "BAT1": "External"}
+
+_running = True
+
+
+def log(message: str) -> None:
+    print(time.strftime("%Y-%m-%d %H:%M:%S"), message, flush=True)
+
+
+def read_value(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def read_int(path: Path) -> int | None:
+    value = read_value(path)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def read_batteries() -> list[dict]:
+    batteries = []
+    for entry in sorted(POWER_SUPPLY.glob("BAT*")):
+        if read_value(entry / "type") != "Battery":
+            continue
+        if read_value(entry / "present") == "0":
+            continue
+
+        energy_now = read_int(entry / "energy_now")
+        energy_full = read_int(entry / "energy_full")
+        capacity = read_int(entry / "capacity")
+
+        if energy_now is not None and energy_full:
+            pct = energy_now * 100.0 / energy_full
+        elif capacity is not None:
+            pct = float(capacity)
+        else:
+            pct = 0.0
+
+        batteries.append(
+            {
+                "name": entry.name,
+                "status": read_value(entry / "status") or "Unknown",
+                "pct": pct,
+                "energy_now": energy_now or 0,
+                "energy_full": energy_full or 0,
+            }
+        )
+    return batteries
+
+
+def combined_pct(batteries: list[dict]) -> float:
+    energy_now = sum(b["energy_now"] for b in batteries)
+    energy_full = sum(b["energy_full"] for b in batteries)
+    if energy_full > 0:
+        return energy_now * 100.0 / energy_full
+    if batteries:
+        return sum(b["pct"] for b in batteries) / len(batteries)
+    return 0.0
+
+
+def ac_online() -> bool:
+    for entry in POWER_SUPPLY.iterdir():
+        if read_value(entry / "type") == "Mains" and read_value(entry / "online") == "1":
+            return True
+    return False
+
+
+def describe(batteries: list[dict]) -> str:
+    return " · ".join(
+        f"{LABELS.get(b['name'], b['name'])} {b['pct']:.0f}%" for b in batteries
+    )
+
+
+def notify(
+    summary: str,
+    body: str,
+    urgency: str = "normal",
+    icon: str = "battery",
+    timeout: int | None = None,
+) -> bool:
+    command = [
+        "notify-send",
+        "--app-name=Battery",
+        f"--urgency={urgency}",
+        f"--icon={icon}",
+    ]
+    if timeout is not None:
+        command.append(f"--expire-time={timeout}")
+    command.extend([summary, body])
+
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"notify-send failed: {exc}")
+        return False
+
+    if completed.returncode != 0:
+        log(f"notify-send exited {completed.returncode}: {completed.stderr.strip()}")
+        return False
+    return True
+
+
+DEFAULT_STATE = {"low": "0", "limit": "0", "was_charging": "0", "ac": "-1"}
+
+
+def load_state() -> dict[str, str]:
+    state = dict(DEFAULT_STATE)
+    try:
+        for line in STATE_PATH.read_text().splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key in state:
+                state[key] = value.strip()
+    except OSError:
+        pass
+    return state
+
+
+def save_state(state: dict[str, str]) -> None:
+    try:
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = STATE_PATH.with_suffix(".tmp")
+        temporary.write_text("".join(f"{key}={value}\n" for key, value in state.items()))
+        temporary.replace(STATE_PATH)
+    except OSError as exc:
+        log(f"could not save state: {exc}")
+
+
+def tick(state: dict[str, str]) -> dict[str, str]:
+    batteries = read_batteries()
+    if not batteries:
+        return state
+
+    ac = ac_online()
+    combined = combined_pct(batteries)
+    detail = describe(batteries)
+    charging = ac and any(b["status"] == "Charging" for b in batteries)
+
+    previous_ac = state["ac"] == "1"
+    if ac and not previous_ac:
+        state["was_charging"] = "0"
+    if not ac and previous_ac:
+        state["was_charging"] = "0"
+        state["limit"] = "0"
+    state["ac"] = "1" if ac else "0"
+
+    if charging:
+        state["was_charging"] = "1"
+
+    # Low battery: combined percentage, once per discharge cycle.
+    if not ac:
+        if combined <= LOW_THRESHOLD and state["low"] != "1":
+            if notify(
+                f"Battery low — {combined:.0f}%",
+                f"{detail} · plug in soon.",
+                urgency="critical",
+                icon="battery-caution",
+                timeout=0,
+            ):
+                state["low"] = "1"
+                log(f"low battery notification sent at {combined:.1f}%")
+        elif combined > LOW_RESET and state["low"] == "1":
+            state["low"] = "0"
+    else:
+        state["low"] = "0"
+
+    # Charge limit: all batteries at/above the cap and charging has stopped.
+    at_limit = all(b["pct"] >= LIMIT_THRESHOLD - LIMIT_TOLERANCE for b in batteries)
+    if (
+        ac
+        and state["was_charging"] == "1"
+        and not charging
+        and at_limit
+        and state["limit"] != "1"
+    ):
+        if notify(
+            "Charging stopped at 80%",
+            f"{detail} · charging is capped at 80%.",
+            icon="battery-full-charged",
+            timeout=10000,
+        ):
+            state["limit"] = "1"
+            log(f"charge-limit notification sent ({detail})")
+
+    return state
+
+
+def print_status() -> None:
+    batteries = read_batteries()
+    state = load_state()
+    ac = ac_online()
+
+    print(f"AC: {'online' if ac else 'offline'}")
+    for battery in batteries:
+        path = POWER_SUPPLY / battery["name"]
+        start = read_value(path / "charge_control_start_threshold")
+        end = read_value(path / "charge_control_end_threshold")
+        label = LABELS.get(battery["name"], battery["name"])
+        print(
+            f"{label} ({battery['name']}): {battery['pct']:.1f}% "
+            f"{battery['status']} thresholds {start}->{end}"
+        )
+    print(f"Combined: {combined_pct(batteries):.1f}%")
+    print(
+        "State: "
+        + " ".join(f"{key}={value}" for key, value in state.items())
+    )
+
+
+def send_test() -> None:
+    notify(
+        "Battery low — 20%",
+        "Internal 18% · External 22% · plug in soon.",
+        urgency="critical",
+        icon="battery-caution",
+        timeout=0,
+    )
+    time.sleep(1)
+    notify(
+        "Charging stopped at 80%",
+        "Internal 100% · External 80% · charging is capped at 80%.",
+        icon="battery-full-charged",
+        timeout=10000,
+    )
+
+
+def stop(_signum: int, _frame) -> None:
+    global _running
+    _running = False
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--status", action="store_true", help="print current battery state")
+    parser.add_argument("--test", action="store_true", help="send sample notifications")
+    args = parser.parse_args()
+
+    if args.status:
+        print_status()
+        return 0
+    if args.test:
+        send_test()
+        return 0
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    log(f"battery-guard started (polling every {POLL_SECONDS}s)")
+    state = load_state()
+    while _running:
+        try:
+            state = tick(state)
+            save_state(state)
+        except Exception as exc:  # keep the daemon alive on unexpected errors
+            log(f"error: {exc}")
+
+        deadline = time.monotonic() + POLL_SECONDS
+        while _running and time.monotonic() < deadline:
+            time.sleep(max(0.0, min(1.0, deadline - time.monotonic())))
+
+    log("battery-guard stopped")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

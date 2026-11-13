@@ -18,12 +18,19 @@ cat > /etc/hosts <<EOF
 127.0.1.1   axyl.localdomain axyl
 EOF
 
+# ── Branding ─────────────────────────────────────────────────────────────────
+# Some tools read /usr/lib/os-release directly; keep it in sync with /etc.
+install -Dm644 /etc/os-release /usr/lib/os-release
+
 # ── Services ─────────────────────────────────────────────────────────────────
 systemctl enable NetworkManager.service
 systemctl enable greetd.service
 systemctl enable getty@tty2.service
-systemctl enable acpid.service
 systemctl enable bluetooth.service
+# Live clock sync; the installed system keeps its own time service.
+systemctl enable systemd-timesyncd.service
+# Nothing in the desktop needs network-online.target; avoid the boot delay.
+systemctl disable NetworkManager-wait-online.service || true
 systemctl set-default graphical.target
 
 # greetd runs its greeter as this system account; create it if the package
@@ -71,13 +78,23 @@ for f in \
     /usr/local/bin/axyl-install \
     /usr/local/bin/axyl-setup \
     /etc/skel/.local/bin/bt-default-sink.sh \
+    /etc/skel/.local/bin/waybar-battery \
+    /etc/skel/.local/bin/battery-guard \
     /etc/skel/.local/bin/start-audio.sh \
     /etc/skel/.local/bin/timer \
     /etc/skel/.config/rofi/powermenu.sh \
+    /etc/skel/.config/rofi/services.sh \
     /etc/skel/.config/rofi/keybinds.sh \
     /etc/skel/.config/theme/render.py \
     /etc/skel/.config/theme/themes.py \
     /home/axyl/.local/bin/start-audio.sh \
+    /home/axyl/.local/bin/bt-default-sink.sh \
+    /home/axyl/.local/bin/waybar-battery \
+    /home/axyl/.local/bin/battery-guard \
+    /home/axyl/.local/bin/timer \
+    /home/axyl/.config/rofi/powermenu.sh \
+    /home/axyl/.config/rofi/services.sh \
+    /home/axyl/.config/rofi/keybinds.sh \
     /home/axyl/.config/theme/render.py; do
     [[ -e "$f" ]] && chmod 0755 "$f"
 done

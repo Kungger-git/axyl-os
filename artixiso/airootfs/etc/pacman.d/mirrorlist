@@ -1,7 +1,8 @@
 ##
-## Artix Linux repository mirrorlist for the Axyl live image and installed system.
+## Axyl Linux (Artix-based) repository mirrorlist for the live image and installed system.
 ## Only signed Artix repositories are configured here.
 ##
+Server = https://mirrors.tuna.tsinghua.edu.cn/artixlinux/$repo/os/$arch
 Server = https://mirrors.dotsrc.org/artix-linux/repos/$repo/os/$arch
-Server = https://mirror.clarkson.edu/artix-linux/repos/$repo/os/$arch
 Server = https://mirror1.artixlinux.org/repos/$repo/os/$arch
+Server = https://mirror.clarkson.edu/artix-linux/repos/$repo/os/$arch

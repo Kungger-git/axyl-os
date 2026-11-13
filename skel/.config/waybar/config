@@ -7,7 +7,7 @@
 
   "modules-left": ["hyprland/workspaces"],
   "modules-center": ["clock"],
-  "modules-right": ["backlight", "pulseaudio", "network", "battery"],
+  "modules-right": ["backlight", "pulseaudio", "network", "custom/battery-internal", "custom/battery-external"],
 
   "hyprland/workspaces": {
     "format": "{icon}",
@@ -43,12 +43,20 @@
     "format-disconnected": ""
   },
 
-  "battery": {
-    "format": "{icon} {capacity}%",
-    "format-icons": ["", "", "", "", ""],
-    "states": {
-      "warning": 20,
-      "critical": 10
-    }
+  // One pill per battery pack: BAT0 = internal, BAT1 = external (ThinkPads).
+  // waybar-battery prints empty text when the pack is absent, so a
+  // single-battery machine simply shows one pill.
+  "custom/battery-internal": {
+    "exec": "$HOME/.local/bin/waybar-battery BAT0",
+    "return-type": "json",
+    "interval": 2,
+    "tooltip": true
+  },
+
+  "custom/battery-external": {
+    "exec": "$HOME/.local/bin/waybar-battery BAT1",
+    "return-type": "json",
+    "interval": 2,
+    "tooltip": true
   }
 }

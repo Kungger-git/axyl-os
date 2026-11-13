@@ -18,6 +18,10 @@ cat > /etc/hosts <<EOF
 127.0.1.1   axyl.localdomain axyl
 EOF
 
+# ── Branding ─────────────────────────────────────────────────────────────────
+# Some tools read /usr/lib/os-release directly; keep it in sync with /etc.
+install -Dm644 /etc/os-release /usr/lib/os-release
+
 # ── Initramfs ────────────────────────────────────────────────────────────────
 # The linux.preset (modified by mkinitcpio-archiso) loads the 'archiso' drop-in.
 # Artix's mkinitcpio generates a 'Configuration: archiso' section header in the
@@ -35,12 +39,21 @@ mkinitcpio \
 # Enable by symlinking into runsvdir/default -- runit starts all on boot.
 RUNIT_DEFAULT="/etc/runit/runsvdir/default"
 mkdir -p "$RUNIT_DEFAULT"
-for svc in dbus elogind NetworkManager greetd acpid bluetoothd agetty-tty2; do
+# elogind-runit already enables "logind", which is an alias for the same
+# service. Adding "elogind" too would start two supervisors for one daemon.
+# chrony keeps the live clock correct once NetworkManager is up.
+for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony; do
     if [ -d "/etc/runit/sv/$svc" ]; then
         ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
     else
         echo "WARNING: /etc/runit/sv/$svc not found -- check *-runit package" >&2
     fi
+done
+
+# runit ships gettys on tty1-tty6. Keep only tty2 as the documented fallback
+# console; greetd owns VT7.
+for svc in agetty-tty1 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6; do
+    rm -f "$RUNIT_DEFAULT/$svc"
 done
 
 # greetd runs its greeter as this system account; create it if the package
@@ -89,13 +102,23 @@ for f in \
     /usr/local/bin/axyl-install \
     /usr/local/bin/axyl-setup \
     /etc/skel/.local/bin/bt-default-sink.sh \
+    /etc/skel/.local/bin/waybar-battery \
+    /etc/skel/.local/bin/battery-guard \
     /etc/skel/.local/bin/start-audio.sh \
     /etc/skel/.local/bin/timer \
     /etc/skel/.config/rofi/powermenu.sh \
+    /etc/skel/.config/rofi/services.sh \
     /etc/skel/.config/rofi/keybinds.sh \
     /etc/skel/.config/theme/render.py \
     /etc/skel/.config/theme/themes.py \
     /home/axyl/.local/bin/start-audio.sh \
+    /home/axyl/.local/bin/bt-default-sink.sh \
+    /home/axyl/.local/bin/waybar-battery \
+    /home/axyl/.local/bin/battery-guard \
+    /home/axyl/.local/bin/timer \
+    /home/axyl/.config/rofi/powermenu.sh \
+    /home/axyl/.config/rofi/services.sh \
+    /home/axyl/.config/rofi/keybinds.sh \
     /home/axyl/.config/theme/render.py; do
     [[ -e "$f" ]] && chmod 0755 "$f"
 done

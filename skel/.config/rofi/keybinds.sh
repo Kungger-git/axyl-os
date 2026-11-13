@@ -39,5 +39,10 @@ if [ -z "$entries" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "--list" ]; then
+  printf '%s\n' "$entries"
+  exit 0
+fi
+
 printf '%s\n' "$entries" \
   | rofi -dmenu -i -no-custom -p "Keybinds" -theme ~/.config/rofi/style.rasi

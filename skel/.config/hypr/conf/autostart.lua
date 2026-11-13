@@ -20,6 +20,11 @@ hl.on("hyprland.start", function()
   -- Bluetooth audio -> default sink helper.
   hl.exec_cmd("sleep 2; bash " .. home .. "/.local/bin/bt-default-sink.sh")
 
+  -- Battery notifications (low charge / charge limit). Guarded so a manual
+  -- start and this autostart cannot run two copies.
+  hl.exec_cmd("pgrep -f '[b]attery-guard' >/dev/null 2>&1 || " ..
+              "python3 " .. home .. "/.local/bin/battery-guard")
+
   -- Path is distro-specific (Arch shown). Alternative: hyprpolkitagent.
   hl.exec_cmd("/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1")
 end)

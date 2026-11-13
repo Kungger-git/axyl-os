@@ -3,3 +3,7 @@ axyl-out/
 axyl-build/
 
 archiso/airootfs/root/aur-cache/
+
+# Python bytecode
+__pycache__/
+*.pyc

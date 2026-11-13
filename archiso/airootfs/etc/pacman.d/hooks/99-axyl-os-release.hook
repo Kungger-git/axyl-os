@@ -1,0 +1,12 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = filesystem
+
+[Action]
+Description = Restoring Axyl Linux os-release branding...
+When = PostTransaction
+# If the two paths already point at the same file (a symlinked os-release),
+# there is nothing to restore and install(1) would fail with "same file".
+Exec = /bin/sh -c 'test /etc/os-release -ef /usr/lib/os-release || /usr/bin/install -Dm644 /etc/os-release /usr/lib/os-release'

@@ -19,6 +19,7 @@ hl.bind(mod .. " + A",              hl.dsp.exec_cmd("rofi -show window -theme ~/
 
 -- Session and system
 hl.bind(mod .. " + L",              hl.dsp.exec_cmd("hyprlock"),    { description = "Lock screen" })
+hl.bind(mod .. " + SHIFT + M",      hl.dsp.exec_cmd("~/.config/rofi/services.sh"), { description = "Services menu" })
 hl.bind(mod .. " + SHIFT + E",      hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch exit"), { description = "Exit Hyprland" })
 hl.bind(mod .. " + SHIFT + B",      hl.dsp.exec_cmd("pkill -SIGUSR2 waybar"), { description = "Reload waybar" })
 hl.bind(mod .. " + SHIFT + D",      function()
@@ -107,8 +108,6 @@ hl.bind(mod .. " + mouse:273",      hl.dsp.window.resize(), { mouse = true, desc
 
 -- Clipboard history (needs cliphist + wl-clipboard)
 hl.bind(mod .. " + X",              hl.dsp.exec_cmd("cliphist list | rofi -dmenu -theme ~/.config/rofi/style.rasi | cliphist decode | wl-copy"), { description = "Clipboard history" })
--- Emoji picker (needs rofi-emoji)
-hl.bind(mod .. " + SHIFT + X",      hl.dsp.exec_cmd("rofi -show emoji -theme ~/.config/rofi/style.rasi"), { description = "Emoji picker" })
 -- Keybind cheat sheet
 hl.bind(mod .. " + slash",          hl.dsp.exec_cmd("~/.config/rofi/keybinds.sh"), { description = "Keybind cheat sheet" })
 -- Theme picker (opencode built-in themes -> entire desktop)

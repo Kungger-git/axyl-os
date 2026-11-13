@@ -52,6 +52,7 @@ kitty
 pipewire
 pipewire-alsa
 pipewire-pulse
+pipewire-audio
 wireplumber
 gst-plugin-pipewire
 pavucontrol
@@ -60,7 +61,11 @@ brightnessctl
 libnotify
 
 networkmanager
+iw
+wireless-regdb
 networkmanager-runit
+chrony
+chrony-runit
 bluez
 bluez-runit
 bluez-utils
@@ -151,9 +156,6 @@ grim
 slurp
 
 udisks2
-acpi
-acpid
-acpid-runit
 procps-ng
 psmisc
 util-linux

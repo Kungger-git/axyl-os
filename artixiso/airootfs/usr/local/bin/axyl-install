@@ -271,6 +271,10 @@ install_packages() {
         run_pacstrap /mnt "${pkgs[@]}"
     fi
     run_genfstab -U /mnt >> /mnt/etc/fstab
+    # The ESP holds the bootloader; keep it root-only for consistency with
+    # the systemd-boot hardening documented on the host.
+    sed -i -E '/[[:space:]]\/boot[[:space:]]+vfat/ { s/fmask=[0-7]+/fmask=0077/; s/dmask=[0-7]+/dmask=0077/ }' \
+        /mnt/etc/fstab
     ok "Base system installed"
 }
 
@@ -288,15 +292,32 @@ copy_payload() {
 
     rm -f /mnt/etc/os-release
     install -Dm644 /etc/os-release /mnt/etc/os-release
+    install -Dm644 /etc/os-release /mnt/usr/lib/os-release
     install -Dm644 /etc/axyl/variant /mnt/etc/axyl/variant
     install -Dm644 /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
     install -Dm644 /etc/issue /mnt/etc/issue
+    install -Dm644 /etc/pacman.d/hooks/99-axyl-os-release.hook \
+        /mnt/etc/pacman.d/hooks/99-axyl-os-release.hook
     [[ -f /etc/locale.conf ]] && install -Dm644 /etc/locale.conf /mnt/etc/locale.conf
 
     # Make the installed initramfs boot reliably under QEMU/VM disks and GPU.
     if [[ -f /mnt/etc/mkinitcpio.conf ]]; then
         sed -i 's/^MODULES=.*/MODULES=(virtio_blk virtio_pci virtio_net virtio_gpu)/' \
             /mnt/etc/mkinitcpio.conf
+        # Load early microcode. intel-ucode/amd-ucode are always installed.
+        if ! grep -q '^HOOKS=.*microcode' /mnt/etc/mkinitcpio.conf; then
+            sed -i -E '/^HOOKS=/ s/\bautodetect\b/autodetect microcode/' \
+                /mnt/etc/mkinitcpio.conf
+            sed -i -E '/^HOOKS=/ { /autodetect/! s/\bbase\b/base microcode/ }' \
+                /mnt/etc/mkinitcpio.conf
+        fi
+    fi
+
+    # systemd-resolved is not installed; leaving "resolve" in nsswitch makes
+    # every lookup wait on a resolver that will never answer.
+    if [[ -f /mnt/etc/nsswitch.conf ]]; then
+        sed -i 's/^hosts:.*/hosts: files mymachines myhostname dns/' \
+            /mnt/etc/nsswitch.conf
     fi
 
     cat > /mnt/etc/greetd/config.toml <<'EOF'
@@ -371,16 +392,24 @@ configure_system() {
 
     if [[ "$VARIANT" == "arch" ]]; then
         run_arch_chroot /mnt systemctl enable \
-            NetworkManager.service greetd.service acpid.service bluetooth.service getty@tty2.service
+            NetworkManager.service greetd.service bluetooth.service getty@tty2.service \
+            systemd-timesyncd.service
+        run_arch_chroot /mnt systemctl disable NetworkManager-wait-online.service || true
         run_arch_chroot /mnt systemctl set-default graphical.target
     else
         install -d /mnt/etc/runit/runsvdir/default
-        for svc in dbus elogind NetworkManager greetd acpid bluetoothd agetty-tty2; do
+        # elogind-runit already enables "logind" (an alias for the same
+        # service); adding "elogind" as well would run two supervisors.
+        for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony; do
             if [[ -d "/mnt/etc/runit/sv/$svc" ]]; then
                 ln -sf "/etc/runit/sv/$svc" "/mnt/etc/runit/runsvdir/default/$svc"
             else
                 warn "runit service not found: $svc"
             fi
+        done
+        # runit ships gettys on tty1-tty6; keep only tty2 as the fallback.
+        for svc in agetty-tty1 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6; do
+            rm -f "/mnt/etc/runit/runsvdir/default/$svc"
         done
         [[ -d /mnt/etc/runit/sv/greetd ]] || die "greetd-runit is missing"
     fi

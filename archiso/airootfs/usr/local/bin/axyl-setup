@@ -11,7 +11,7 @@ if [[ -z "$REALUSER" || "$REALUSER" == "root" ]]; then
     exit 1
 fi
 
-echo "==> Axyl post-install setup (Arch / systemd)"
+echo "==> Axyl Linux post-install setup"
 
 # Installed systems use the greeter, not the live ISO autologin.
 cat > /etc/greetd/config.toml <<'EOF'
@@ -23,11 +23,12 @@ command = "agreety --cmd /usr/local/bin/start-hyprland-session"
 user = "greeter"
 EOF
 
-for svc in NetworkManager greetd acpid bluetooth; do
-    if systemctl list-unit-files "$svc.service" &>/dev/null; then
+for svc in NetworkManager greetd bluetooth systemd-timesyncd getty@tty2; do
+    if systemctl cat "$svc.service" &>/dev/null; then
         systemctl enable "$svc.service"
     fi
 done
+systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 systemctl set-default graphical.target
 
 sudo -u "$REALUSER" xdg-user-dirs-update

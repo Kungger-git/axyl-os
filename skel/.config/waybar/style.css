@@ -57,7 +57,8 @@ window#waybar {
 }
 
 /* Right-hand and center modules */
-#clock, #backlight, #pulseaudio, #network, #battery {
+#clock, #backlight, #pulseaudio, #network,
+#custom-battery-internal, #custom-battery-external {
   padding: 0 8px;
 }
 
@@ -74,5 +75,19 @@ window#waybar {
   color: @red;
 }
 
-#battery.warning  { color: @yellow; }
-#battery.critical { color: @red; }
+/* Battery pills: BAT0 = internal, BAT1 = external */
+#custom-battery-internal.charging,
+#custom-battery-external.charging {
+  color: @green;
+}
+
+/* Ordered last so low charge wins over the charging tint */
+#custom-battery-internal.warning,
+#custom-battery-external.warning {
+  color: @yellow;
+}
+
+#custom-battery-internal.critical,
+#custom-battery-external.critical {
+  color: @red;
+}

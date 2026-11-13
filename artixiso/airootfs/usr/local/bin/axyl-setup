@@ -11,7 +11,7 @@ if [[ -z "$REALUSER" || "$REALUSER" == "root" ]]; then
     exit 1
 fi
 
-echo "==> Axyl post-install setup (Artix / runit)"
+echo "==> Axyl Linux post-install setup"
 
 # Installed systems use the greeter, not the live ISO autologin.
 cat > /etc/greetd/config.toml <<'EOF'
@@ -25,8 +25,14 @@ EOF
 
 RUNIT_DEFAULT="/etc/runit/runsvdir/default"
 mkdir -p "$RUNIT_DEFAULT"
-for svc in dbus elogind NetworkManager greetd acpid bluetoothd; do
-    [[ -d "/etc/runit/sv/$svc" ]] && ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
+# logind is already enabled by elogind-runit (same service as elogind).
+for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony; do
+    if [[ -d "/etc/runit/sv/$svc" ]]; then
+        ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
+    fi
+done
+for svc in agetty-tty1 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6; do
+    rm -f "$RUNIT_DEFAULT/$svc"
 done
 
 sudo -u "$REALUSER" xdg-user-dirs-update

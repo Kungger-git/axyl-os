@@ -1,5 +1,15 @@
 FROM artixlinux/artixlinux:base-runit
 
+# Curated, fast Artix mirrors. The base image's default list contains dead or
+# very slow hosts, and a stale cached package DB breaks the live install when a
+# galaxy package is rebuilt (e.g. ttf-jetbrains-mono-nerd).
+RUN printf '%s\n' \
+        'Server = https://mirrors.tuna.tsinghua.edu.cn/artixlinux/$repo/os/$arch' \
+        'Server = https://mirrors.dotsrc.org/artix-linux/repos/$repo/os/$arch' \
+        'Server = https://mirror1.artixlinux.org/repos/$repo/os/$arch' \
+        'Server = https://mirror.clarkson.edu/artix-linux/repos/$repo/os/$arch' \
+        > /etc/pacman.d/mirrorlist
+
 # archiso and arch-install-scripts are not in Artix repos.
 # Section must be named [extra] — pacman fetches <section>.db from the server,
 # so a custom name like [arch-extra] would request a non-existent arch-extra.db.

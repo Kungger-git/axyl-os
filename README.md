@@ -10,8 +10,12 @@ Two variants are available:
 
 | Variant | Init system | UEFI bootloader | Output |
 |---|---|---|---|
-| `arch` | systemd | systemd-boot | `axyl-out/arch/axyl-arch-*.iso` |
+| `arch` | systemd | GRUB | `axyl-out/arch/axyl-arch-*.iso` |
 | `artix` | runit | GRUB | `axyl-out/artix/axyl-artix-*.iso` |
+
+Both variants identify as **Axyl Linux** in `/etc/os-release` and
+`/usr/lib/os-release`; the underlying base remains visible through `ID=arch`
+or `ID=artix`.
 
 Both build inside Docker; no native Arch or Artix host is required.
 
@@ -125,6 +129,23 @@ The installed system starts greetd on tty7. Log in as `axyl` with the password
 passed to the installer, then verify Hyprland, Waybar, audio, Brave, Dolphin,
 and Neovim. `Ctrl+Alt+F2` should show a separate text login.
 
+Additional checks on the installed target:
+
+```bash
+# One Waybar pill per pack; a single-battery VM shows only the internal pill.
+~/.local/bin/waybar-battery BAT0
+~/.local/bin/battery-guard --status
+
+# Services menu (Super+Shift+M) lists only installed services.
+~/.config/rofi/services.sh --list
+
+# Time sync (systemd-timesyncd on Arch, chrony on Artix).
+timedatectl status        # Artix: chronyc tracking
+
+# Early microcode hook is present.
+grep '^HOOKS=' /etc/mkinitcpio.conf
+```
+
 Test both `arch` and `artix` ISOs. Audio startup is systemd-user based on Arch
 and uses the manual PipeWire branch on Artix; in both cases `pactl info` should
 report `/run/user/1000/pulse/native`.
@@ -150,12 +171,20 @@ plus the rest as ext4.
 
 The installer:
 
-- installs the variant's package manifest from `/usr/local/share/axyl/`;
+- installs the variant's package manifest from `/usr/local/share/axyl/`
+  (includes `pipewire-audio`, `iw`, and `wireless-regdb`);
 - copies the live `/etc/skel` (Hyprland, Waybar, Mako, Kitty, Rofi, Neovim,
   Dolphin/KDE, theme engine, Brave wrapper) to the target;
 - installs the vendored Brave package;
 - creates the user, sets the password, locks root, enables `wheel` sudo;
-- enables NetworkManager, Bluetooth, acpid, and greetd;
+- enables NetworkManager, Bluetooth, greetd, and a fallback tty2 console;
+- enables `systemd-timesyncd` on Arch and `chrony` under runit on Artix; both
+  live and installed systems sync time. `upower` is not explicitly listed or
+  enabled; Waybar pulls it in as a dependency, but the battery helpers read
+  sysfs directly;
+- adds the `microcode` initramfs hook for `intel-ucode`/`amd-ucode`;
+- drops `resolve` from `nsswitch.conf` (systemd-resolved is not installed) and
+  hardens the vfat ESP with `fmask=0077,dmask=0077`;
 - regenerates the user's theme files for the real home directory;
 - installs and configures GRUB for the detected firmware;
 - writes a greeter-based `/etc/greetd/config.toml` (no live autologin).
@@ -180,6 +209,11 @@ the live build.
 - **Shell**: zsh + Starship, autosuggestions, syntax highlighting
 - **Audio**: PipeWire/WirePlumber, `wpctl`, pavucontrol
 - **Bluetooth**: bluez + a small default-sink helper
+- **Batteries**: `waybar-battery` renders one Waybar pill per pack (BAT0/BAT1)
+  and hides packs that are absent; `battery-guard` sends low-charge and
+  charge-limit notifications from sysfs
+- **Services menu**: Rofi toggles Bluetooth, Wi-Fi adapters, and installed
+  services; uses `systemctl` on Arch and `sv` on Artix
 - **Theme engine**: `~/.config/theme/render.py` renders Hyprland, Waybar,
   Mako/Rofi, Kitty, Starship, Neovim, Cava, KDE, Qt6ct, and GTK. Change
   `~/.config/theme/palette.json` and rerun it.
@@ -198,18 +232,19 @@ All bindings use **Super**.
 | `Super + W` | Brave |
 | `Super + E` | Dolphin |
 | `Super + Shift + Q` | Power menu |
+| `Super + Shift + M` | Services menu (Bluetooth, Wi-Fi, SSH, Docker) |
 | `Super + Shift + R` | Reload Hyprland |
 | `Super + /` | Keybind cheat sheet |
 | `Super + Shift + T` | Theme picker |
 | `Super + X` | Clipboard history |
-| `Super + Shift + X` | Emoji picker (Arch; Artix lacks `rofi-emoji`) |
 | `Super + 1..9` | Workspaces |
 | `Super + Shift + 1..9` | Move window to workspace |
 | `Super + R` | Enter resize mode |
 | `Print` | Region screenshot |
 
 `Super + Shift + Q` uses `hyprlock`, `loginctl` power actions, and the Rofi power
-menu installed in `~/.config/rofi/powermenu.sh`.
+menu installed in `~/.config/rofi/powermenu.sh`. `loginctl` works with both
+systemd and elogind, so the same menu runs on Arch and Artix.
 
 ---
 
@@ -224,7 +259,8 @@ menu installed in `~/.config/rofi/powermenu.sh`.
 does not keep that rule. Live autologin is implemented with greetd
 `initial_session`; the installer writes a greeter-only config for the target.
 
-The live timezone is `Asia/Manila`, hostname is `axyl`.
+The live timezone is `Asia/Manila`, hostname is `axyl`. The live desktop also
+syncs time automatically (`systemd-timesyncd` on Arch, `chrony` on Artix).
 
 ---
 

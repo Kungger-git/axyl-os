@@ -1,0 +1,248 @@
+#!/bin/sh
+# waybar-battery - dual-battery helper for waybar's "custom" module.
+#
+# Usage: waybar-battery BAT0|BAT1
+#
+# Prints one JSON line for waybar ("return-type": "json"):
+#   {"text": "...", "tooltip": "...", "class": ["..."]}
+#
+# - text is the capacity icon + percent for the requested pack, or empty when
+#   that pack is not present. Waybar hides a custom module whose text is empty,
+#   so the external pill appears/disappears on plug/unplug by itself.
+# - tooltip always describes both packs plus the combined total, so hovering
+#   either pill shows the whole picture.
+#
+# Reads sysfs directly (no upower), so a whole run is a handful of reads.
+# POWER_SUPPLY can be overridden to test the missing-battery path.
+
+PS=${POWER_SUPPLY:-/sys/class/power_supply}
+BAT=${1:-BAT0}
+WARN_PCT=${WARN_PCT:-20}
+CRIT_PCT=${CRIT_PCT:-10}
+
+# read_sys FILE -> REPLY (empty when unreadable)
+read_sys() {
+  REPLY=
+  [ -r "$1" ] && IFS= read -r REPLY <"$1" 2>/dev/null
+  return 0
+}
+
+# Capacity glyph, matching the old battery module's 5 tiers:
+# 0-19 0xf244, 20-39 0xf243, 40-59 0xf242, 60-79 0xf241, 80+ 0xf240
+icon_for() {
+  case $(( $1 / 20 )) in
+    0) printf '\357\211\204' ;;
+    1) printf '\357\211\203' ;;
+    2) printf '\357\211\202' ;;
+    3) printf '\357\211\201' ;;
+    *) printf '\357\211\200' ;;
+  esac
+}
+
+# micro-Wh -> "6.68"
+wh() {
+  printf '%d.%02d' $(( $1 / 1000000 )) $(( ($1 % 1000000) / 10000 ))
+}
+
+# micro-W -> "18.4"
+watt() {
+  printf '%d.%d' $(( $1 / 1000000 )) $(( ($1 % 1000000) / 100000 ))
+}
+
+# minutes -> "22 min" / "1 h 30 min"
+fmt_mins() {
+  m=$1
+  [ "$m" -lt 0 ] && m=0
+  if [ "$m" -ge 60 ]; then
+    printf '%d h %02d min' $(( m / 60 )) $(( m % 60 ))
+  else
+    printf '%d min' "$m"
+  fi
+}
+
+# status_text STATUS PCT LIMIT -> human wording
+status_text() {
+  case $1 in
+    Charging) printf 'charging' ;;
+    Discharging) printf 'discharging' ;;
+    Full) printf 'full' ;;
+    "Not charging")
+      if [ "${3:-100}" -lt 100 ] && [ "$2" -ge $(( ${3:-100} - 1 )) ]; then
+        printf 'not charging (limit %s%%)' "$3"
+      else
+        printf 'not charging'
+      fi ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# status_class STATUS -> css class
+status_class() {
+  case $1 in
+    Charging) printf 'charging' ;;
+    Discharging) printf 'discharging' ;;
+    Full) printf 'full' ;;
+    "Not charging") printf 'not-charging' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# time_left STATUS NOW FULL POWER -> "22 min to full" / "1 h 30 min to empty"
+time_left() {
+  case $1 in
+    Charging)
+      [ "${4:-0}" -gt 0 ] && [ "${3:-0}" -gt "${2:-0}" ] &&
+        printf '%s to full' "$(fmt_mins $(( ($3 - $2) * 60 / $4 )))" ;;
+    Discharging)
+      [ "${4:-0}" -gt 0 ] &&
+        printf '%s to empty' "$(fmt_mins $(( $2 * 60 / $4 )))" ;;
+  esac
+}
+
+# gather NAME -> g_present g_status g_pct g_now g_full g_design g_power g_limit
+gather() {
+  g_present=0
+  g_status=Unknown
+  g_pct=0
+  g_now=0
+  g_full=0
+  g_design=0
+  g_power=0
+  g_limit=100
+
+  d="$PS/$1"
+  [ -d "$d" ] || return 0
+
+  read_sys "$d/type"
+  [ "$REPLY" = "Battery" ] || return 0
+  read_sys "$d/present"
+  [ "$REPLY" = "0" ] && return 0
+
+  g_present=1
+
+  read_sys "$d/status"
+  [ -n "$REPLY" ] && g_status=$REPLY
+  read_sys "$d/energy_now"
+  [ -n "$REPLY" ] && g_now=$REPLY
+  read_sys "$d/energy_full"
+  [ -n "$REPLY" ] && g_full=$REPLY
+  read_sys "$d/energy_full_design"
+  [ -n "$REPLY" ] && g_design=$REPLY
+  read_sys "$d/power_now"
+  [ -n "$REPLY" ] && g_power=${REPLY#-}
+  read_sys "$d/charge_control_end_threshold"
+  [ -n "$REPLY" ] && g_limit=$REPLY
+
+  if [ "$g_full" -gt 0 ]; then
+    g_pct=$(( (g_now * 100 + g_full / 2) / g_full ))
+  else
+    read_sys "$d/capacity"
+    [ -n "$REPLY" ] && g_pct=$REPLY
+  fi
+}
+
+# Tooltip block for one pack. Note: emits a literal "\n" (JSON escape).
+block() { # label name present pct status now full design power limit
+  if [ "${3:-0}" -ne 1 ]; then
+    printf '<b>%s (%s)</b> · not connected' "$1" "$2"
+    return
+  fi
+
+  printf '<b>%s (%s)</b> · %s%% · %s\\n' \
+    "$1" "$2" "$4" "$(status_text "$5" "$4" "${10}")"
+
+  printf '%s / %s Wh' "$(wh "$6")" "$(wh "$7")"
+
+  if [ "${9:-0}" -gt 0 ]; then
+    printf ' · %s W' "$(watt "$9")"
+    t=$(time_left "$5" "$6" "$7" "$9")
+    [ -n "$t" ] && printf ' · %s' "$t"
+  fi
+
+  [ "${8:-0}" -gt 0 ] && printf ' · health %s%%' "$(( $7 * 100 / $8 ))"
+}
+
+# ---------------------------------------------------------------- both packs
+gather BAT0
+i_present=$g_present i_status=$g_status i_pct=$g_pct
+i_now=$g_now i_full=$g_full i_design=$g_design i_power=$g_power i_limit=$g_limit
+
+gather BAT1
+e_present=$g_present e_status=$g_status e_pct=$g_pct
+e_now=$g_now e_full=$g_full e_design=$g_design e_power=$g_power e_limit=$g_limit
+
+# ------------------------------------------------------------- combined view
+total_now=0
+total_full=0
+total_power=0
+for d in "$PS"/*; do
+  [ -d "$d" ] || continue
+  read_sys "$d/type"
+  [ "$REPLY" = "Battery" ] || continue
+  read_sys "$d/present"
+  [ "$REPLY" = "0" ] && continue
+  read_sys "$d/energy_now"
+  n=${REPLY:-0}
+  read_sys "$d/energy_full"
+  f=${REPLY:-0}
+  read_sys "$d/power_now"
+  p=${REPLY:-0}
+  total_now=$(( total_now + n ))
+  total_full=$(( total_full + f ))
+  total_power=$(( total_power + ${p#-} ))
+done
+
+total_pct=0
+[ "$total_full" -gt 0 ] && total_pct=$(( (total_now * 100 + total_full / 2) / total_full ))
+
+on_ac=0
+for d in "$PS"/*; do
+  [ -d "$d" ] || continue
+  read_sys "$d/type"
+  [ "$REPLY" = "Mains" ] || continue
+  read_sys "$d/online"
+  [ "$REPLY" = "1" ] && on_ac=1
+done
+
+if [ "$on_ac" -eq 1 ]; then
+  power_state='AC connected'
+else
+  power_state='on battery'
+fi
+
+# ------------------------------------------------------- requested pack only
+case $BAT in
+  BAT1) my_present=$e_present my_status=$e_status my_pct=$e_pct my_name=Ext ;;
+  *)    my_present=$i_present my_status=$i_status my_pct=$i_pct my_name=Int ;;
+esac
+
+if [ "$my_present" -eq 1 ]; then
+  text="$(icon_for "$my_pct") $my_name $my_pct%"
+else
+  text=
+fi
+
+classes="\"$(status_class "$my_status")\""
+if [ "$total_pct" -le "$CRIT_PCT" ]; then
+  classes="$classes,\"critical\""
+elif [ "$total_pct" -le "$WARN_PCT" ]; then
+  classes="$classes,\"warning\""
+fi
+
+tooltip="<b>Battery</b> · $power_state\\n\\n"
+tooltip="$tooltip$(block Internal BAT0 "$i_present" "$i_pct" "$i_status" "$i_now" "$i_full" "$i_design" "$i_power" "$i_limit")\\n\\n"
+tooltip="$tooltip$(block External BAT1 "$e_present" "$e_pct" "$e_status" "$e_now" "$e_full" "$e_design" "$e_power" "$e_limit")"
+
+if [ "$total_full" -gt 0 ]; then
+  tooltip="$tooltip\\n\\n<b>Total</b> · $(wh "$total_now") / $(wh "$total_full") Wh · $total_pct%"
+  if [ "$total_power" -gt 0 ]; then
+    tooltip="$tooltip · $(watt "$total_power") W"
+    if [ "$on_ac" -eq 1 ] && [ "$total_now" -lt "$total_full" ]; then
+      tooltip="$tooltip · $(fmt_mins $(( (total_full - total_now) * 60 / total_power ))) to full"
+    elif [ "$on_ac" -eq 0 ] && [ "$total_now" -gt 0 ]; then
+      tooltip="$tooltip · $(fmt_mins $(( total_now * 60 / total_power ))) to empty"
+    fi
+  fi
+fi
+
+printf '{"text":"%s","tooltip":"%s","class":[%s]}\n' "$text" "$tooltip" "$classes"

@@ -92,7 +92,7 @@ if docker image inspect "$DOCKER_IMAGE" &>/dev/null; then
 fi
 info "Building Docker builder image..."
 echo ""
-docker build -t "$DOCKER_IMAGE" - < "$DOCKERFILE"
+docker build --pull --no-cache -t "$DOCKER_IMAGE" - < "$DOCKERFILE"
 echo ""
 ok "Builder image ready ($DOCKER_IMAGE)"
 ok "Preflight passed ($VARIANT / docker)"
