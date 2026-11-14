@@ -25,7 +25,7 @@ EOF
 
 if [ -d /run/systemd/system ]; then
     for svc in NetworkManager greetd bluetooth systemd-timesyncd getty@tty2 \
-               tlp.service fstrim.timer; do
+               tlp.service fstrim.timer earlyoom.service fwupd-refresh.timer; do
         if systemctl cat "$svc" &>/dev/null; then
             systemctl enable "$svc"
         fi
@@ -37,7 +37,7 @@ if [ -d /run/systemd/system ]; then
 else
     # runit: enable by symlinking into runsvdir/default.
     install -d /etc/runit/runsvdir/default
-    for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune; do
+    for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune earlyoom; do
         if [ -d "/etc/runit/sv/$svc" ]; then
             ln -sf "/etc/runit/sv/$svc" "/etc/runit/runsvdir/default/$svc"
         fi

@@ -42,9 +42,9 @@ mkdir -p "$RUNIT_DEFAULT"
 # elogind-runit already enables "logind", which is an alias for the same
 # service. Adding "elogind" too would start two supervisors for one daemon.
 # chrony keeps the live clock correct once NetworkManager is up.
-# tlp and zramen come from *-runit packages; axyl-tune is shipped in this
-# overlay and applies the sysctl/zram tunables plus weekly fstrim.
-for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune; do
+# tlp, zramen, and earlyoom come from *-runit packages; axyl-tune is shipped
+# in this overlay and applies the sysctl/zram tunables plus weekly fstrim.
+for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune earlyoom; do
     if [ -d "/etc/runit/sv/$svc" ]; then
         ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
     else
@@ -103,6 +103,7 @@ for f in \
     /usr/local/bin/brave-wayland \
     /usr/local/bin/axyl-install \
     /usr/local/bin/axyl-setup \
+    /usr/local/bin/axyl-game \
     /etc/skel/.local/bin/bt-default-sink.sh \
     /etc/skel/.local/bin/waybar-battery \
     /etc/skel/.local/bin/battery-guard \

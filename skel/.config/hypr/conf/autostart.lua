@@ -1,5 +1,6 @@
 -- Runs once, when Hyprland starts (not on config reload).
 hl.on("hyprland.start", function()
+  hl.exec_cmd("~/.local/bin/start-audio.sh")
   hl.exec_cmd("waybar")
 
   -- Notifications (mako) and idle management (hypridle).

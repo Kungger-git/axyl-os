@@ -177,7 +177,9 @@ The installer:
   Dolphin/KDE, theme engine, Brave wrapper) to the target;
 - installs the vendored Brave package;
 - creates the user, sets the password, locks root, enables `wheel` sudo;
-- enables NetworkManager, Bluetooth, greetd, and a fallback tty2 console;
+- enables NetworkManager, Bluetooth, greetd, Early OOM, and a fallback tty2
+  console; `fwupd-refresh.timer` is enabled on Arch, while Artix uses manual
+  `fwupdmgr` runs because fwupd there is D-Bus-activated;
 - enables `systemd-timesyncd` on Arch and `chrony` under runit on Artix; both
   live and installed systems sync time. `upower` is not explicitly listed or
   enabled; Waybar pulls it in as a dependency, but the battery helpers read
@@ -218,8 +220,8 @@ the live build.
 - **Batteries**: `waybar-battery` renders one Waybar pill per pack (BAT0/BAT1)
   and hides packs that are absent; `battery-guard` sends low-charge and
   charge-limit notifications from sysfs
-- **Services menu**: Rofi toggles Bluetooth, Wi-Fi adapters, and installed
-  services; uses `systemctl` on Arch and `sv` on Artix. It also offers a
+- **Services menu**: Rofi toggles Bluetooth, Early OOM, Wi-Fi adapters, and
+  installed services; uses `systemctl` on Arch and `sv` on Artix. It also offers a
   "Network wait-online" boot toggle and a "Hyprland effects" switch that turns
   blur, shadows, and animations off at runtime.
 - **Theme engine**: `~/.config/theme/render.py` renders Hyprland, Waybar,
@@ -233,12 +235,45 @@ the live build.
 ### Performance defaults
 
 The image targets low-spec hardware: zram instead of disk swap, TLP power
-management, the `schedutil` governor, `noatime`, periodic TRIM, one-pass
-Hyprland blur, and Waybar polling no faster than 5 s. Live menus boot
+management, Early OOM, the `schedutil` governor, `noatime`, periodic TRIM,
+one-pass Hyprland blur, and Waybar polling no faster than 5 s. Live menus boot
 automatically after 3 s (Arch) or 5 s (Artix), and installed systems use a 2 s
 GRUB menu. `~/.local/bin/hypr-effects performance` (or the Services menu) turns
 blur, shadows, and animations off for the current session; `hyprctl reload`
 restores the configured look.
+
+### Gaming, firmware, and microphones
+
+`axyl-game` wraps a game with GameMode and MangoHud in the current Hyprland
+session:
+
+```bash
+axyl-game /path/to/game
+axyl-game --gamescope /path/to/game    # nested 1920x1080@60 gamescope window
+axyl-game --no-mangohud /path/to/game
+```
+
+`AXYL_GAME_WIDTH`, `AXYL_GAME_HEIGHT`, and `AXYL_GAME_REFRESH` change the
+gamescope output size. MangoHud uses `~/.config/MangoHud/MangoHud.conf`; press
+`Shift+F12` to toggle it. This is a per-game wrapper only: log in normally to
+Hyprland and launch games through it, rather than booting a separate Gamescope
+session.
+
+Firmware updates are manual with `sudo fwupdmgr get-updates` and
+`sudo fwupdmgr update`. Arch enables `fwupd-refresh.timer`; on Artix fwupd is
+D-Bus-activated with no runit service, so run `fwupdmgr refresh` yourself.
+Flatpak is installed for sandboxed applications (`flatpak remote-add --if-not-exists
+flathub https://flathub.org/repo/flathub.flatpakrepo`).
+
+PipeWire's echo canceller loads from
+`~/.config/pipewire/pipewire.conf.d/99-axyl-echo-cancel.conf`. Pick
+**Axyl Echo-Cancelled Microphone** in the app's input device list for speaker
+echo suppression; when no speakers are active it falls back to the normal
+microphone.
+
+The image intentionally ships no 32-bit/multilib gaming stack. Steam and
+other 32-bit titles need the `multilib` repository enabled and a
+`[multilib]`-aware package list, which this ISO does not configure.
 
 ### Main keybindings
 

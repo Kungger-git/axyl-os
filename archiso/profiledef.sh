@@ -22,6 +22,7 @@ file_permissions=(
     ["/usr/local/bin/brave-wayland"]="0:0:755"
     ["/usr/local/bin/axyl-install"]="0:0:755"
     ["/usr/local/bin/axyl-setup"]="0:0:755"
+    ["/usr/local/bin/axyl-game"]="0:0:755"
     ["/etc/skel/.local/bin/bt-default-sink.sh"]="0:0:755"
     ["/etc/skel/.local/bin/waybar-battery"]="0:0:755"
     ["/etc/skel/.local/bin/battery-guard"]="0:0:755"

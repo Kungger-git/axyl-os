@@ -328,6 +328,21 @@ qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
 | Bluetooth | bluez, bluez-utils, blueman | Bluetooth stack + GUI applet |
 | Viewers | zathura, zathura-pdf-mupdf, nsxiv | PDF + image viewers |
 | Installer | arch-install-scripts, archinstall, reflector, parted, gptfdisk, dosfstools, e2fsprogs, btrfs-progs, cryptsetup, lvm2, ntfs-3g, polkit | Target install tools |
+| Gaming/maintenance | gamescope, gamemode, mangohud, earlyoom, fwupd, flatpak (`earlyoom-runit` on Artix) | `axyl-game` wrapper, OOM protection, firmware updates, sandboxed apps |
+
+### Gaming and maintenance additions
+
+- `axyl-game` (both variants) wraps a game with `gamemoderun` and `MANGOHUD=1`;
+  `--gamescope` runs it inside a nested gamescope window. It is registered in
+  both `profiledef.sh` `file_permissions` files and copied by `axyl-install`.
+- `skel/.config/MangoHud/MangoHud.conf` and
+  `skel/.config/pipewire/pipewire.conf.d/99-axyl-echo-cancel.conf` are copied
+  through `/etc/skel`; no extra package is needed for echo cancellation
+  because `pipewire-audio` already pulls in `webrtc-audio-processing`.
+- Early OOM is enabled as `earlyoom.service` on Arch and by the `earlyoom`
+  runit symlink on Artix. `fwupd-refresh.timer` is enabled on Arch only;
+  Artix has no `fwupd-runit`, so firmware updates stay manual.
+- `axyl-game` must be chmod'd in both `customize_airootfs.sh` payload lists.
 
 ---
 
@@ -706,6 +721,8 @@ Run mentally after every edit session:
 - Any new wallpaper image: extension in `bspwmrc` feh call matches the actual file extension.
 - **Artix variant:** Any script in `archiso/airootfs/usr/local/bin/` that calls `systemctl` MUST have an override in `artixiso/airootfs/usr/local/bin/` that uses `loginctl` instead. Currently overridden: `axyl-powermenu`, `axyl-setup`.
 - **Artix variant:** Every daemon enabled in `customize_airootfs.sh` must have both a base package AND a `-runit` companion package in `artixiso/packages.x86_64`.
+- `axyl-game` exists in both `archiso` and `artixiso` overlays, is executable, and is copied by both `axyl-install` variants.
+- Both `packages.x86_64` and `packages.target` contain the same gaming/maintenance block (`earlyoom-runit` only on Artix).
 
 ---
 

@@ -290,6 +290,7 @@ copy_payload() {
     install -Dm755 "$START_WRAPPER" /mnt/usr/local/bin/start-hyprland-session
     install -Dm755 /usr/local/bin/brave-wayland /mnt/usr/local/bin/brave-wayland
     install -Dm755 /usr/local/bin/axyl-setup /mnt/usr/local/bin/axyl-setup
+    install -Dm755 /usr/local/bin/axyl-game /mnt/usr/local/bin/axyl-game
 
     compgen -G "$BRAVE_GLOB" >/dev/null || die "Vendored Brave package is missing"
     cp $BRAVE_GLOB /mnt/var/cache/axyl/
@@ -414,14 +415,15 @@ configure_system() {
     if [[ "$VARIANT" == "arch" ]]; then
         run_arch_chroot /mnt systemctl enable \
             NetworkManager.service greetd.service bluetooth.service getty@tty2.service \
-            systemd-timesyncd.service tlp.service fstrim.timer
+            systemd-timesyncd.service tlp.service fstrim.timer \
+            earlyoom.service fwupd-refresh.timer
         run_arch_chroot /mnt systemctl disable NetworkManager-wait-online.service || true
         run_arch_chroot /mnt systemctl set-default graphical.target
     else
         install -d /mnt/etc/runit/runsvdir/default
         # elogind-runit already enables "logind" (an alias for the same
         # service); adding "elogind" as well would run two supervisors.
-        for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune; do
+        for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune earlyoom; do
             if [[ -d "/mnt/etc/runit/sv/$svc" ]]; then
                 ln -sf "/etc/runit/sv/$svc" "/mnt/etc/runit/runsvdir/default/$svc"
             else

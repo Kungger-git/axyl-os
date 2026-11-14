@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: axyl-game [options] -- COMMAND [ARGS...]
+
+Run a game with GameMode and MangoHud. Add gamescope with --gamescope.
+
+Options:
+  --gamescope        Run inside a nested gamescope window
+  --no-gamemode      Do not wrap with gamemoderun
+  --no-mangohud      Do not set MANGOHUD=1
+  -h, --help         Show this help
+
+Environment:
+  AXYL_GAME_WIDTH    gamescope output width  (default: 1920)
+  AXYL_GAME_HEIGHT   gamescope output height (default: 1080)
+  AXYL_GAME_REFRESH  gamescope refresh rate  (default: 60)
+
+Examples:
+  axyl-game /path/to/game
+  axyl-game --gamescope /path/to/game
+EOF
+}
+
+gamescope=0
+gamemode=1
+mangohud=1
+
+while (($#)); do
+    case "$1" in
+        --gamescope) gamescope=1 ;;
+        --no-gamemode) gamemode=0 ;;
+        --no-mangohud) mangohud=0 ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; break ;;
+        -*) echo "axyl-game: unknown option: $1" >&2; usage >&2; exit 2 ;;
+        *) break ;;
+    esac
+    shift
+done
+
+if (($# == 0)); then
+    usage >&2
+    exit 2
+fi
+
+cmd=("$@")
+
+if ((mangohud)) && [[ -z "${MANGOHUD:-}" ]]; then
+    export MANGOHUD=1
+fi
+
+if ((gamemode)) && command -v gamemoderun >/dev/null 2>&1; then
+    cmd=(gamemoderun "${cmd[@]}")
+fi
+
+if ((gamescope)); then
+    if ! command -v gamescope >/dev/null 2>&1; then
+        echo "axyl-game: gamescope is not installed" >&2
+        exit 1
+    fi
+    cmd=(gamescope \
+        -W "${AXYL_GAME_WIDTH:-1920}" \
+        -H "${AXYL_GAME_HEIGHT:-1080}" \
+        -r "${AXYL_GAME_REFRESH:-60}" \
+        -f -- "${cmd[@]}")
+fi
+
+exec "${cmd[@]}"

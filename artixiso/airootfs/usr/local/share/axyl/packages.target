@@ -69,6 +69,15 @@ zramen
 zramen-runit
 tlp
 
+# Per-game wrapper (axyl-game), firmware updates, and sandboxed apps.
+gamescope
+gamemode
+mangohud
+earlyoom
+earlyoom-runit
+fwupd
+flatpak
+
 dolphin
 kio-extras
 ark

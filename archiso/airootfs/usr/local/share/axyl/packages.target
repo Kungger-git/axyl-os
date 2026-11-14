@@ -61,6 +61,14 @@ openssh
 zram-generator
 tlp
 
+# Per-game wrapper (axyl-game), firmware updates, and sandboxed apps.
+gamescope
+gamemode
+mangohud
+earlyoom
+fwupd
+flatpak
+
 dolphin
 kio-extras
 ark

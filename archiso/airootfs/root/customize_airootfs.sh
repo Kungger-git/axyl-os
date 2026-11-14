@@ -33,6 +33,10 @@ systemctl enable systemd-timesyncd.service
 # keep low-spec laptops cool and their SSDs healthy.
 systemctl enable tlp.service
 systemctl enable fstrim.timer
+# Kill the largest process before the kernel OOM killer freezes the desktop.
+systemctl enable earlyoom.service
+# Refresh firmware metadata hourly; updates stay manual via fwupdmgr.
+systemctl enable fwupd-refresh.timer
 # Nothing in the desktop needs network-online.target; avoid the boot delay.
 systemctl disable NetworkManager-wait-online.service || true
 systemctl set-default graphical.target
@@ -81,6 +85,7 @@ for f in \
     /usr/local/bin/brave-wayland \
     /usr/local/bin/axyl-install \
     /usr/local/bin/axyl-setup \
+    /usr/local/bin/axyl-game \
     /etc/skel/.local/bin/bt-default-sink.sh \
     /etc/skel/.local/bin/waybar-battery \
     /etc/skel/.local/bin/battery-guard \

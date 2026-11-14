@@ -263,6 +263,8 @@ build_menu() {
     service_row "Bluetooth" bluetooth.service
   fi
 
+  unit_installed earlyoom.service && service_row "Early OOM" earlyoom.service
+
   if [ -n "$INTERNAL_IFACE" ]; then
     wifi_row "Wi-Fi internal ($INTERNAL_IFACE)" "$INTERNAL_IFACE"
   else
@@ -305,6 +307,7 @@ while true; do
   detect_wifi
   case "$choice" in
     "Bluetooth"*)          toggle_bluetooth ;;
+    "Early OOM"*)          toggle_service "Early OOM" earlyoom.service ;;
     "Wi-Fi internal"*)     [ -n "$INTERNAL_IFACE" ] && toggle_wifi "Wi-Fi internal" "$INTERNAL_IFACE" ;;
     "Wi-Fi dongle"*)       [ -n "$DONGLE_IFACE" ] && toggle_wifi "Wi-Fi dongle" "$DONGLE_IFACE" ;;
     "Docker"*)             toggle_service "Docker" docker.service docker.socket ;;
