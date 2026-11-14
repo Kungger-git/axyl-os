@@ -1,5 +1,4 @@
 base
-base-devel
 linux
 linux-firmware
 intel-ucode
@@ -39,10 +38,10 @@ waybar
 mako
 hyprlock
 hypridle
-hyprshot
 hyprpicker
 rofi
 kitty
+foot
 
 pipewire
 pipewire-alsa
@@ -61,6 +60,10 @@ wireless-regdb
 bluez
 bluez-utils
 openssh
+
+# Low-memory swap and laptop power management (config in /etc).
+zram-generator
+tlp
 
 dolphin
 kio-extras
@@ -104,18 +107,11 @@ imv
 mpv
 zathura
 zathura-pdf-mupdf
-tesseract-data-eng
 
 git
 curl
 wget
 python
-python-lsp-server
-nodejs
-npm
-pyright
-gcc
-make
 ripgrep
 fd
 fzf
