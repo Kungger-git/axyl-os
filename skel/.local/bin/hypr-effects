@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# hypr-effects -- switch Hyprland compositor effects at runtime.
+#
+#   hypr-effects              toggle
+#   hypr-effects full         blur, shadows and animations on
+#   hypr-effects performance  blur, shadows and animations off
+#   hypr-effects status       print "full" or "performance"
+#
+# This only changes the running session. `hyprctl reload` (or a new login)
+# restores the values from ~/.config/hypr/conf/appearance.lua, so the
+# configuration file is never modified.
+
+set -uo pipefail
+
+if ! command -v hyprctl >/dev/null 2>&1; then
+  echo "hypr-effects: hyprctl not found" >&2
+  exit 1
+fi
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+  echo "hypr-effects: no running Hyprland session" >&2
+  exit 1
+fi
+
+get_bool() {
+  hyprctl getoption "$1" 2>/dev/null | awk '/^bool:/ { print $2; exit }'
+}
+
+set_effects() {
+  local value=$1 opt
+  # Hyprland 0.5x with a Lua config takes runtime changes through
+  # `hyprctl eval`; `hyprctl keyword` answers "unknown request" there.
+  # Older releases still use keywords, so fall back to those.
+  if [ "$(hyprctl eval \
+        "hl.config({ decoration = { blur = { enabled = $value }, shadow = { enabled = $value } }, animations = { enabled = $value } })" \
+        2>/dev/null)" = ok ]; then
+    return 0
+  fi
+  for opt in decoration:blur:enabled \
+             decoration:shadow:enabled \
+             animations:enabled; do
+    hyprctl keyword "$opt" "$value" >/dev/null 2>&1 || return 1
+  done
+}
+
+status() {
+  local blur shadow anim
+  blur=$(get_bool decoration:blur:enabled)
+  shadow=$(get_bool decoration:shadow:enabled)
+  anim=$(get_bool animations:enabled)
+  if [ "$blur" = true ] || [ "$shadow" = true ] || [ "$anim" = true ]; then
+    echo full
+  else
+    echo performance
+  fi
+}
+
+case "${1:-toggle}" in
+  status)
+    status
+    ;;
+  full|on|enable)
+    set_effects true && status
+    ;;
+  performance|off|disable)
+    set_effects false && status
+    ;;
+  toggle)
+    if [ "$(status)" = full ]; then
+      set_effects false || exit 1
+    else
+      set_effects true || exit 1
+    fi
+    status
+    ;;
+  *)
+    echo "usage: hypr-effects [status|full|performance|toggle]" >&2
+    exit 2
+    ;;
+esac

@@ -12,7 +12,8 @@ hl.bind(mod .. " + RETURN",         hl.dsp.exec_cmd(v.terminal),   { description
 hl.bind(mod .. " + SHIFT + R",      hl.dsp.exec_cmd(v.reload),     { description = "Reload Hyprland config" })
 -- hl.bind(mod .. " + SHIFT + Q",   hl.dsp.exit())
 hl.bind(mod .. " + SHIFT + Q",      hl.dsp.exec_cmd("~/.config/rofi/powermenu.sh"), { description = "Power menu" })
-hl.bind(mod .. " + W",              hl.dsp.exec_cmd(v.browser),     { description = "Open browser" })
+-- hl.bind(mod .. " + W",              hl.dsp.exec_cmd(v.browser),     { description = "Open browser" })
+hl.bind(mod .. " + W",              hl.dsp.exec_cmd("brave"),     { description = "Open browser" })
 hl.bind(mod .. " + E",              hl.dsp.exec_cmd(v.fileManager), { description = "Open file manager" })
 hl.bind(mod .. " + D",              hl.dsp.exec_cmd(v.menu),        { description = "App launcher" })
 hl.bind(mod .. " + A",              hl.dsp.exec_cmd("rofi -show window -theme ~/.config/rofi/style.rasi"), { description = "Window switcher" })
@@ -20,7 +21,7 @@ hl.bind(mod .. " + A",              hl.dsp.exec_cmd("rofi -show window -theme ~/
 -- Session and system
 hl.bind(mod .. " + L",              hl.dsp.exec_cmd("hyprlock"),    { description = "Lock screen" })
 hl.bind(mod .. " + SHIFT + M",      hl.dsp.exec_cmd("~/.config/rofi/services.sh"), { description = "Services menu" })
-hl.bind(mod .. " + SHIFT + E",      hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch exit"), { description = "Exit Hyprland" })
+hl.bind(mod .. " + SHIFT + E",      hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'"), { description = "Exit Hyprland" })
 hl.bind(mod .. " + SHIFT + B",      hl.dsp.exec_cmd("pkill -SIGUSR2 waybar"), { description = "Reload waybar" })
 hl.bind(mod .. " + SHIFT + D",      function()
   -- DPMS must not be toggled directly from a bind; delay it slightly.
@@ -29,13 +30,13 @@ hl.bind(mod .. " + SHIFT + D",      function()
   end, { timeout = 500, type = "oneshot" })
 end, { description = "Turn off displays" })
 
--- Screenshots (hyprshot + slurp). The print key's keysym is "Print".
--- -z freezes the screen first so menus/tooltips stay put while you drag the region.
-hl.bind("Print",                    hl.dsp.exec_cmd("hyprshot -m region -z"),                  { description = "Screenshot: region" })
-hl.bind(mod .. " + SHIFT + C",      hl.dsp.exec_cmd("hyprshot -m region -z"),                  { description = "Screenshot: region (alt)" })
-hl.bind(mod .. " + SHIFT + A",      hl.dsp.exec_cmd("hyprshot -m region -z --clipboard-only"), { description = "Screenshot: region to clipboard" })
-hl.bind("SHIFT + Print",            hl.dsp.exec_cmd("hyprshot -m window"),                     { description = "Screenshot: window" })
-hl.bind(mod .. " + Print",          hl.dsp.exec_cmd("hyprshot -m output"),                     { description = "Screenshot: output" })
+-- Screenshots (grim + slurp via ~/.local/bin/screenshot). The print key's
+-- keysym is "Print". Region mode freezes the selection overlay first.
+hl.bind("Print",                    hl.dsp.exec_cmd("~/.local/bin/screenshot region"),                  { description = "Screenshot: region" })
+hl.bind(mod .. " + SHIFT + C",      hl.dsp.exec_cmd("~/.local/bin/screenshot region"),                  { description = "Screenshot: region (alt)" })
+hl.bind(mod .. " + SHIFT + A",      hl.dsp.exec_cmd("~/.local/bin/screenshot region --clipboard-only"), { description = "Screenshot: region to clipboard" })
+hl.bind("SHIFT + Print",            hl.dsp.exec_cmd("~/.local/bin/screenshot window"),                  { description = "Screenshot: window" })
+hl.bind(mod .. " + Print",          hl.dsp.exec_cmd("~/.local/bin/screenshot output"),                  { description = "Screenshot: output" })
 hl.bind(mod .. " + C",              hl.dsp.exec_cmd("hyprpicker"),         { description = "Colour picker" })
 
 -- Window management
@@ -108,6 +109,8 @@ hl.bind(mod .. " + mouse:273",      hl.dsp.window.resize(), { mouse = true, desc
 
 -- Clipboard history (needs cliphist + wl-clipboard)
 hl.bind(mod .. " + X",              hl.dsp.exec_cmd("cliphist list | rofi -dmenu -theme ~/.config/rofi/style.rasi | cliphist decode | wl-copy"), { description = "Clipboard history" })
+-- Emoji picker (needs rofi-emoji)
+hl.bind(mod .. " + SHIFT + X",      hl.dsp.exec_cmd("rofi -show emoji -theme ~/.config/rofi/style.rasi"), { description = "Emoji picker" })
 -- Keybind cheat sheet
 hl.bind(mod .. " + slash",          hl.dsp.exec_cmd("~/.config/rofi/keybinds.sh"), { description = "Keybind cheat sheet" })
 -- Theme picker (opencode built-in themes -> entire desktop)
@@ -125,17 +128,15 @@ hl.define_submap("resize", function()
 end)
 
 -- Volume and brightness (work on the lock screen, repeat while held)
-local hold = { locked = true, repeating = true }
-hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"), hold)
-hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),      hold)
-hl.bind("XF86AudioMute",            hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     hold)
-hl.bind("XF86AudioMicMute",         hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   hold)
-hl.bind("XF86MonBrightnessUp",      hl.dsp.exec_cmd("brightnessctl s 10%+"),                           hold)
-hl.bind("XF86MonBrightnessDown",    hl.dsp.exec_cmd("brightnessctl s 10%-"),                           hold)
+hl.bind("XF86AudioRaiseVolume",     hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true, repeating = true, description = "Volume up" })
+hl.bind("XF86AudioLowerVolume",     hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),      { locked = true, repeating = true, description = "Volume down" })
+hl.bind("XF86AudioMute",            hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true, repeating = true, description = "Mute audio" })
+hl.bind("XF86AudioMicMute",         hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true, repeating = true, description = "Mute microphone" })
+hl.bind("XF86MonBrightnessUp",      hl.dsp.exec_cmd("brightnessctl s 10%+"),                           { locked = true, repeating = true, description = "Brightness up" })
+hl.bind("XF86MonBrightnessDown",    hl.dsp.exec_cmd("brightnessctl s 10%-"),                           { locked = true, repeating = true, description = "Brightness down" })
 
 -- Media keys (requires playerctl)
-local locked = { locked = true }
-hl.bind("XF86AudioNext",            hl.dsp.exec_cmd("playerctl next"),       locked)
-hl.bind("XF86AudioPause",           hl.dsp.exec_cmd("playerctl play-pause"), locked)
-hl.bind("XF86AudioPlay",            hl.dsp.exec_cmd("playerctl play-pause"), locked)
-hl.bind("XF86AudioPrev",            hl.dsp.exec_cmd("playerctl previous"),   locked)
+hl.bind("XF86AudioNext",            hl.dsp.exec_cmd("playerctl next"),       { locked = true, description = "Next track" })
+hl.bind("XF86AudioPause",           hl.dsp.exec_cmd("playerctl play-pause"), { locked = true, description = "Play/pause" })
+hl.bind("XF86AudioPlay",            hl.dsp.exec_cmd("playerctl play-pause"), { locked = true, description = "Play/pause" })
+hl.bind("XF86AudioPrev",            hl.dsp.exec_cmd("playerctl previous"),   { locked = true, description = "Previous track" })

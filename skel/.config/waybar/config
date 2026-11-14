@@ -7,7 +7,7 @@
 
   "modules-left": ["hyprland/workspaces"],
   "modules-center": ["clock"],
-  "modules-right": ["backlight", "pulseaudio", "network", "custom/battery-internal", "custom/battery-external"],
+  "modules-right": ["cpu", "memory", "backlight", "pulseaudio", "network", "custom/battery-internal", "custom/battery-external", "tray"],
 
   "hyprland/workspaces": {
     "format": "{icon}",
@@ -18,9 +18,26 @@
   },
 
   "clock": {
-    "format": "{:%a %b %d, %H:%M:%S}",
-    "tooltip-format": "<big>{:%Y-%m-%d %H:%M:%S}</big>",
-    "interval": 1
+    "format": "{:%a %b %d, %H:%M}",
+    "tooltip-format": "<big>{:%Y-%m-%d %H:%M}</big>",
+    "interval": 10
+  },
+
+  "cpu": {
+    "format": "󰍛 {usage}%",
+    "tooltip-format": "CPU {usage}% · {avg_frequency} GHz",
+    "interval": 5
+  },
+
+  "memory": {
+    "format": "󰘚 {used:0.1f}G",
+    "tooltip-format": "RAM {used:0.1f} / {total:0.1f} GiB",
+    "interval": 5
+  },
+
+  "tray": {
+    "icon-size": 14,
+    "spacing": 6
   },
 
 
@@ -28,35 +45,36 @@
   // Replaces custom/brightness (which spawned brightnessctl + grep every second)
   "backlight": {
     "format": "☀️ {percent}%",
-    "tooltip": false
+    "tooltip": false,
+    "interval": 5
   },
 
   "pulseaudio": {
     "format": " {volume}%",
     "format-muted": " MUTE",
-    "max-volume": 100
+    "max-volume": 100,
+    "interval": 5
   },
 
   "network": {
     "format-wifi": " {essid}",
     "format-ethernet": " {ipaddr}",
-    "format-disconnected": ""
+    "format-disconnected": "",
+    "tooltip-format": "{ifname} · {ipaddr}/{cidr} · {signalStrength}%",
+    "interval": 5
   },
 
-  // One pill per battery pack: BAT0 = internal, BAT1 = external (ThinkPads).
-  // waybar-battery prints empty text when the pack is absent, so a
-  // single-battery machine simply shows one pill.
   "custom/battery-internal": {
     "exec": "$HOME/.local/bin/waybar-battery BAT0",
     "return-type": "json",
-    "interval": 2,
+    "interval": 10,
     "tooltip": true
   },
 
   "custom/battery-external": {
     "exec": "$HOME/.local/bin/waybar-battery BAT1",
     "return-type": "json",
-    "interval": 2,
+    "interval": 10,
     "tooltip": true
   }
 }

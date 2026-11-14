@@ -57,14 +57,22 @@ window#waybar {
 }
 
 /* Right-hand and center modules */
-#clock, #backlight, #pulseaudio, #network,
-#custom-battery-internal, #custom-battery-external {
+#clock, #cpu, #memory, #backlight, #pulseaudio, #network,
+#custom-battery-internal, #custom-battery-external, #tray {
   padding: 0 8px;
+}
+
+#cpu, #memory {
+  color: @fg_muted;
 }
 
 #clock {
   color: @fg;
   font-weight: 600;
+}
+
+#tray {
+  padding: 0 6px;
 }
 
 #pulseaudio.muted {

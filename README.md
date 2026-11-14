@@ -173,7 +173,7 @@ The installer:
 
 - installs the variant's package manifest from `/usr/local/share/axyl/`
   (includes `pipewire-audio`, `iw`, and `wireless-regdb`);
-- copies the live `/etc/skel` (Hyprland, Waybar, Mako, Kitty, Rofi, Neovim,
+- copies the live `/etc/skel` (Hyprland, Waybar, Mako, Foot, Rofi, Neovim,
   Dolphin/KDE, theme engine, Brave wrapper) to the target;
 - installs the vendored Brave package;
 - creates the user, sets the password, locks root, enables `wheel` sudo;
@@ -185,6 +185,12 @@ The installer:
 - adds the `microcode` initramfs hook for `intel-ucode`/`amd-ucode`;
 - drops `resolve` from `nsswitch.conf` (systemd-resolved is not installed) and
   hardens the vfat ESP with `fmask=0077,dmask=0077`;
+- writes zram swap (half of RAM, capped at 4 GiB, zstd) plus
+  `vm.swappiness=100`/`vm.page-cluster=0`, and hardware-neutral TLP defaults;
+- mounts the root filesystem `noatime`, boots with `zswap.enabled=0` (no double
+  compression next to zram), and enables weekly TRIM — `fstrim.timer` on Arch,
+  the `axyl-tune` runit service on Artix;
+- boots the installed system with a 2 s GRUB menu;
 - regenerates the user's theme files for the real home directory;
 - installs and configures GRUB for the detected firmware;
 - writes a greeter-based `/etc/greetd/config.toml` (no live autologin).
@@ -201,7 +207,7 @@ the live build.
 - **Bar**: Waybar
 - **Notifications**: Mako
 - **Launcher**: Rofi
-- **Terminal**: Kitty
+- **Terminal**: Foot (Kitty stays installed as a fallback)
 - **Browser**: Brave (`brave-wayland` Ozone wrapper)
 - **File manager**: Dolphin (KDE/KIO, Kvantum + qt6ct theming)
 - **Editor**: Neovim with a vendored `lazy.nvim` plugin tree and offline
@@ -213,13 +219,26 @@ the live build.
   and hides packs that are absent; `battery-guard` sends low-charge and
   charge-limit notifications from sysfs
 - **Services menu**: Rofi toggles Bluetooth, Wi-Fi adapters, and installed
-  services; uses `systemctl` on Arch and `sv` on Artix
+  services; uses `systemctl` on Arch and `sv` on Artix. It also offers a
+  "Network wait-online" boot toggle and a "Hyprland effects" switch that turns
+  blur, shadows, and animations off at runtime.
 - **Theme engine**: `~/.config/theme/render.py` renders Hyprland, Waybar,
-  Mako/Rofi, Kitty, Starship, Neovim, Cava, KDE, Qt6ct, and GTK. Change
+  Mako/Rofi, Foot/Kitty, Starship, Neovim, Cava, KDE, Qt6ct, and GTK. Change
   `~/.config/theme/palette.json` and rerun it.
 - **Lock/idle**: hyprlock + hypridle
-- **Screenshots**: hyprshot
+- **Screenshots**: `~/.local/bin/screenshot` (grim + slurp, saves to
+  `~/Pictures/Screenshots` and copies to the clipboard)
 - **Clipboard**: cliphist + wl-clipboard
+
+### Performance defaults
+
+The image targets low-spec hardware: zram instead of disk swap, TLP power
+management, the `schedutil` governor, `noatime`, periodic TRIM, one-pass
+Hyprland blur, and Waybar polling no faster than 5 s. Live menus boot
+automatically after 3 s (Arch) or 5 s (Artix), and installed systems use a 2 s
+GRUB menu. `~/.local/bin/hypr-effects performance` (or the Services menu) turns
+blur, shadows, and animations off for the current session; `hyprctl reload`
+restores the configured look.
 
 ### Main keybindings
 
@@ -232,7 +251,7 @@ All bindings use **Super**.
 | `Super + W` | Brave |
 | `Super + E` | Dolphin |
 | `Super + Shift + Q` | Power menu |
-| `Super + Shift + M` | Services menu (Bluetooth, Wi-Fi, SSH, Docker) |
+| `Super + Shift + M` | Services menu (Bluetooth, Wi-Fi, Docker, VPN, effects) |
 | `Super + Shift + R` | Reload Hyprland |
 | `Super + /` | Keybind cheat sheet |
 | `Super + Shift + T` | Theme picker |

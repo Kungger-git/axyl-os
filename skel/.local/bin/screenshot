@@ -1,0 +1,48 @@
+#!/bin/sh
+# ~/.local/bin/screenshot -- grim + slurp screenshots with clipboard copy.
+# usage: screenshot [region|window|output] [--clipboard-only]
+set -eu
+
+mode="${1:-region}"
+copy_only=0
+[ "${2:-}" = "--clipboard-only" ] && copy_only=1
+
+dir="${XDG_PICTURES_DIR:-$HOME/Pictures}/Screenshots"
+mkdir -p "$dir"
+
+case "$mode" in
+  region)
+    geom=$(slurp -d -b '#0a0a0ab3' -c '#fab283ff' -s '#fab28340' -w 2 \
+      -F 'JetBrainsMono Nerd Font 10') || exit 0
+    ;;
+  window)
+    geom=$(hyprctl activewindow -j |
+      jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"') || exit 0
+    ;;
+  output)
+    geom=""
+    ;;
+  *)
+    echo "usage: screenshot [region|window|output] [--clipboard-only]" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$copy_only" -eq 1 ]; then
+  if [ -n "$geom" ]; then
+    grim -g "$geom" - | wl-copy
+  else
+    grim - | wl-copy
+  fi
+  notify-send -a screenshot "Screenshot" "Copied to clipboard"
+  exit 0
+fi
+
+file="$dir/$(date +%Y-%m-%d_%H-%M-%S).png"
+if [ -n "$geom" ]; then
+  grim -g "$geom" "$file"
+else
+  grim "$file"
+fi
+wl-copy < "$file"
+notify-send -a screenshot "Screenshot saved" "$file"

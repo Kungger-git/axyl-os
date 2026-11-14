@@ -2,9 +2,9 @@
 return {
   mainMod     = "SUPER",
 
-  terminal    = "kitty",
+  terminal    = "foot",
   fileManager = "dolphin",
   menu        = "rofi -show drun -theme ~/.config/rofi/style.rasi",
-  browser     = "brave-wayland",
+  browser     = "firefox",
   reload      = "hyprctl reload",
 }

@@ -14,9 +14,6 @@ hl.env("QT_QPA_PLATFORM", "wayland;xcb")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
 hl.env("QT_STYLE_OVERRIDE", "kvantum")
 
--- Screenshots. hyprshot saves here instead of scattering into ~/Pictures.
-hl.env("HYPRSHOT_DIR", (os.getenv("HOME") or "/home/axyl") .. "/Pictures/Screenshots")
-
 -- Session
 hl.env("XDG_CURRENT_DESKTOP", "Hyprland")
 hl.env("XDG_SESSION_TYPE", "wayland")

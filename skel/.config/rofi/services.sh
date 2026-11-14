@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ~/.config/rofi/services.sh
-# Rofi menu to start/stop common system services.
+# Rofi menu to start/stop common system services and switch desktop effects.
 # Bound to SUPER + SHIFT + M in ~/.config/hypr/conf/keybinds.lua.
 #
 # Works on both Axyl variants:
@@ -119,6 +119,29 @@ toggle_service() {
   fi
 }
 
+# NetworkManager-wait-online is a oneshot unit: it never stays active, so only
+# its boot-time enablement is shown and toggled.
+wait_online_row() {
+  local boot=off
+  unit_enabled NetworkManager-wait-online.service && boot=on
+  printf '%-27s boot:%s\n' "Network wait-online" "$boot"
+}
+
+toggle_wait_online() {
+  local rc=0
+  if unit_enabled NetworkManager-wait-online.service; then
+    as_root systemctl disable NetworkManager-wait-online.service >/dev/null 2>&1 || rc=$?
+    if   [ "$rc" -eq 0 ];   then notify "Network wait-online disabled" "no boot delay"
+    elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then notify "Network wait-online: authentication cancelled"
+    else notify "Network wait-online: could not disable (exit $rc)"; fi
+  else
+    as_root systemctl enable NetworkManager-wait-online.service >/dev/null 2>&1 || rc=$?
+    if   [ "$rc" -eq 0 ];   then notify "Network wait-online enabled" "waits for the network at boot"
+    elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then notify "Network wait-online: authentication cancelled"
+    else notify "Network wait-online: could not enable (exit $rc)"; fi
+  fi
+}
+
 # On systemd, bluetooth.service is D-Bus activated: WirePlumber re-activates it
 # as soon as bluetoothd exits, so a plain stop does not stick. Mask it while off
 # and block the radio. runit services stay down until `sv up`.
@@ -207,6 +230,30 @@ toggle_wifi() {
   fi
 }
 
+# ---------------------------------------------------------- Hyprland effects
+
+EFFECTS_BIN="$HOME/.local/bin/hypr-effects"
+
+effects_state() {
+  if [ -x "$EFFECTS_BIN" ]; then
+    "$EFFECTS_BIN" status 2>/dev/null || echo unknown
+  else
+    echo unknown
+  fi
+}
+
+toggle_effects() {
+  if [ -x "$EFFECTS_BIN" ] && "$EFFECTS_BIN" toggle >/dev/null 2>&1; then
+    case "$(effects_state)" in
+      performance) notify "Hyprland effects off" "performance mode" ;;
+      full)        notify "Hyprland effects on" "full mode" ;;
+      *)           notify "Hyprland effects switched" ;;
+    esac
+  else
+    notify "Hyprland effects: could not switch"
+  fi
+}
+
 # --------------------------------------------------------------------- menu
 
 build_menu() {
@@ -231,6 +278,15 @@ build_menu() {
   unit_installed docker.service && service_row "Docker" docker.service
   unit_installed sshd.service   && service_row "SSH (sshd)" sshd.service
   unit_installed httpd.service  && service_row "Apache (httpd)" httpd.service
+  unit_installed proton.VPN.service && service_row "Proton VPN" proton.VPN.service
+
+  if [ "$INIT" = systemd ] && unit_installed NetworkManager-wait-online.service; then
+    wait_online_row
+  fi
+
+  if command -v hyprctl >/dev/null 2>&1 && [ -x "$EFFECTS_BIN" ]; then
+    printf '%-27s %s\n' "Hyprland effects" "$(effects_state)"
+  fi
 }
 
 if [ "${1:-}" = "--list" ]; then
@@ -248,12 +304,15 @@ while true; do
 
   detect_wifi
   case "$choice" in
-    "Bluetooth"*)      toggle_bluetooth ;;
-    "Wi-Fi internal"*) [ -n "$INTERNAL_IFACE" ] && toggle_wifi "Wi-Fi internal" "$INTERNAL_IFACE" ;;
-    "Wi-Fi dongle"*)   [ -n "$DONGLE_IFACE" ] && toggle_wifi "Wi-Fi dongle" "$DONGLE_IFACE" ;;
-    "Docker"*)         toggle_service "Docker" docker.service docker.socket ;;
-    "SSH"*)            toggle_service "SSH" sshd.service ;;
-    "Apache"*)         toggle_service "Apache" httpd.service ;;
-    *)                 exit 0 ;;
+    "Bluetooth"*)          toggle_bluetooth ;;
+    "Wi-Fi internal"*)     [ -n "$INTERNAL_IFACE" ] && toggle_wifi "Wi-Fi internal" "$INTERNAL_IFACE" ;;
+    "Wi-Fi dongle"*)       [ -n "$DONGLE_IFACE" ] && toggle_wifi "Wi-Fi dongle" "$DONGLE_IFACE" ;;
+    "Docker"*)             toggle_service "Docker" docker.service docker.socket ;;
+    "SSH"*)                toggle_service "SSH" sshd.service ;;
+    "Apache"*)             toggle_service "Apache" httpd.service ;;
+    "Proton VPN"*)         toggle_service "Proton VPN" proton.VPN.service ;;
+    "Network wait-online"*) toggle_wait_online ;;
+    "Hyprland effects"*)   toggle_effects ;;
+    *)                     exit 0 ;;
   esac
 done
