@@ -115,6 +115,9 @@ for f in \
     /etc/skel/.config/rofi/keybinds.sh \
     /etc/skel/.config/theme/render.py \
     /etc/skel/.config/theme/themes.py \
+    /etc/runit/sv/tlp/run \
+    /etc/runit/sv/tlp/finish \
+    /etc/runit/sv/axyl-tune/run \
     /home/axyl/.local/bin/start-audio.sh \
     /home/axyl/.local/bin/bt-default-sink.sh \
     /home/axyl/.local/bin/waybar-battery \

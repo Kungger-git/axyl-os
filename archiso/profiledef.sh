@@ -13,7 +13,10 @@ pacman_conf="pacman.conf"
 airootfs_image_type="squashfs"
 airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '15' '-b' '512K')
 
-declare -A file_permissions=(
+# Plain assignment, not "declare -A": mkarchiso sources this file inside a
+# function, where "declare" would create a local array and leave mkarchiso's
+# global file_permissions empty -- every overlay file would stay 0644.
+file_permissions=(
     ["/root/customize_airootfs.sh"]="0:0:755"
     ["/usr/local/bin/start-hyprland-session"]="0:0:755"
     ["/usr/local/bin/brave-wayland"]="0:0:755"
