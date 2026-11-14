@@ -271,6 +271,10 @@ install_packages() {
         run_pacstrap /mnt "${pkgs[@]}"
     fi
     run_genfstab -U /mnt >> /mnt/etc/fstab
+    # Fewer metadata writes on the root filesystem; read performance is not
+    # affected, and desktop tools do not rely on atime.
+    sed -i -E '/[[:space:]]\/[[:space:]]+ext4[[:space:]]/ s/relatime/noatime/' \
+        /mnt/etc/fstab
     # The ESP holds the bootloader; keep it root-only for consistency with
     # the systemd-boot hardening documented on the host.
     sed -i -E '/[[:space:]]\/boot[[:space:]]+vfat/ { s/fmask=[0-7]+/fmask=0077/; s/dmask=[0-7]+/dmask=0077/ }' \
@@ -320,6 +324,23 @@ copy_payload() {
             /mnt/etc/nsswitch.conf
     fi
 
+    # ── Low-memory and power tuning ─────────────────────────────────────────
+    # Copy the live settings so the installed system behaves like the ISO.
+    install -Dm644 /etc/tlp.d/50-axyl.conf /mnt/etc/tlp.d/50-axyl.conf
+    install -Dm644 /etc/sysctl.d/99-zram.conf /mnt/etc/sysctl.d/99-zram.conf
+    if [[ "$VARIANT" == "arch" ]]; then
+        install -Dm644 /etc/systemd/zram-generator.conf \
+            /mnt/etc/systemd/zram-generator.conf
+    else
+        # zramen-runit supplies the service; keep our tuned conf.
+        install -Dm644 /etc/runit/sv/zramen/conf /mnt/etc/runit/sv/zramen/conf
+        # TLP and the sysctl/TRIM helper are shipped by the overlay, not by
+        # a -runit package, so copy the service directories too.
+        install -Dm755 /etc/runit/sv/tlp/run /mnt/etc/runit/sv/tlp/run
+        install -Dm755 /etc/runit/sv/tlp/finish /mnt/etc/runit/sv/tlp/finish
+        install -Dm755 /etc/runit/sv/axyl-tune/run /mnt/etc/runit/sv/axyl-tune/run
+    fi
+
     cat > /mnt/etc/greetd/config.toml <<'EOF'
 [terminal]
 vt = 7
@@ -331,9 +352,9 @@ EOF
 
     cat > /mnt/etc/default/grub <<'EOF'
 GRUB_DEFAULT=0
-GRUB_TIMEOUT=3
+GRUB_TIMEOUT=2
 GRUB_DISTRIBUTOR="Axyl Linux"
-GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet zswap.enabled=0"
 GRUB_CMDLINE_LINUX=""
 EOF
 
@@ -393,14 +414,14 @@ configure_system() {
     if [[ "$VARIANT" == "arch" ]]; then
         run_arch_chroot /mnt systemctl enable \
             NetworkManager.service greetd.service bluetooth.service getty@tty2.service \
-            systemd-timesyncd.service
+            systemd-timesyncd.service tlp.service fstrim.timer
         run_arch_chroot /mnt systemctl disable NetworkManager-wait-online.service || true
         run_arch_chroot /mnt systemctl set-default graphical.target
     else
         install -d /mnt/etc/runit/runsvdir/default
         # elogind-runit already enables "logind" (an alias for the same
         # service); adding "elogind" as well would run two supervisors.
-        for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony; do
+        for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune; do
             if [[ -d "/mnt/etc/runit/sv/$svc" ]]; then
                 ln -sf "/etc/runit/sv/$svc" "/mnt/etc/runit/runsvdir/default/$svc"
             else

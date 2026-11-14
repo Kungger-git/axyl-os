@@ -23,17 +23,30 @@ command = "agreety --cmd /usr/local/bin/start-hyprland-session"
 user = "greeter"
 EOF
 
-RUNIT_DEFAULT="/etc/runit/runsvdir/default"
-mkdir -p "$RUNIT_DEFAULT"
-# logind is already enabled by elogind-runit (same service as elogind).
-for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony; do
-    if [[ -d "/etc/runit/sv/$svc" ]]; then
-        ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
-    fi
-done
-for svc in agetty-tty1 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6; do
-    rm -f "$RUNIT_DEFAULT/$svc"
-done
+if [ -d /run/systemd/system ]; then
+    for svc in NetworkManager greetd bluetooth systemd-timesyncd getty@tty2 \
+               tlp.service fstrim.timer; do
+        if systemctl cat "$svc" &>/dev/null; then
+            systemctl enable "$svc"
+        fi
+    done
+    # Nothing in the desktop needs network-online.target. The Services menu can
+    # turn the wait back on if a VPN or network filesystem needs it.
+    systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+    systemctl set-default graphical.target
+else
+    # runit: enable by symlinking into runsvdir/default.
+    install -d /etc/runit/runsvdir/default
+    for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune; do
+        if [ -d "/etc/runit/sv/$svc" ]; then
+            ln -sf "/etc/runit/sv/$svc" "/etc/runit/runsvdir/default/$svc"
+        fi
+    done
+    # runit ships gettys on tty1-tty6; keep only tty2 as the fallback console.
+    for svc in agetty-tty1 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6; do
+        rm -f "/etc/runit/runsvdir/default/$svc"
+    done
+fi
 
 sudo -u "$REALUSER" xdg-user-dirs-update
 if [[ -x "/home/$REALUSER/.config/theme/render.py" ]]; then
