@@ -5,6 +5,6 @@ return {
   terminal    = "foot",
   fileManager = "dolphin",
   menu        = "rofi -show drun -theme ~/.config/rofi/style.rasi",
-  browser     = "firefox",
+  browser     = "brave-wayland",
   reload      = "hyprctl reload",
 }
