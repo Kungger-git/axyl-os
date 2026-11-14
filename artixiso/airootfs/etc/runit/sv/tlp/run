@@ -1,0 +1,10 @@
+#!/bin/sh
+# TLP on runit.
+#
+# `tlp start` applies the settings for the current power source and exits, so
+# the script then parks in `pause` to give runsv something to supervise.
+# TLP's own udev rules handle AC/battery changes after boot.
+exec 2>&1
+
+tlp start || true
+exec pause

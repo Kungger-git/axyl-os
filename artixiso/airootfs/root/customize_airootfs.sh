@@ -42,7 +42,9 @@ mkdir -p "$RUNIT_DEFAULT"
 # elogind-runit already enables "logind", which is an alias for the same
 # service. Adding "elogind" too would start two supervisors for one daemon.
 # chrony keeps the live clock correct once NetworkManager is up.
-for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony; do
+# tlp and zramen come from *-runit packages; axyl-tune is shipped in this
+# overlay and applies the sysctl/zram tunables plus weekly fstrim.
+for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune; do
     if [ -d "/etc/runit/sv/$svc" ]; then
         ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
     else
@@ -106,6 +108,8 @@ for f in \
     /etc/skel/.local/bin/battery-guard \
     /etc/skel/.local/bin/start-audio.sh \
     /etc/skel/.local/bin/timer \
+    /etc/skel/.local/bin/screenshot \
+    /etc/skel/.local/bin/hypr-effects \
     /etc/skel/.config/rofi/powermenu.sh \
     /etc/skel/.config/rofi/services.sh \
     /etc/skel/.config/rofi/keybinds.sh \
@@ -116,6 +120,8 @@ for f in \
     /home/axyl/.local/bin/waybar-battery \
     /home/axyl/.local/bin/battery-guard \
     /home/axyl/.local/bin/timer \
+    /home/axyl/.local/bin/screenshot \
+    /home/axyl/.local/bin/hypr-effects \
     /home/axyl/.config/rofi/powermenu.sh \
     /home/axyl/.config/rofi/services.sh \
     /home/axyl/.config/rofi/keybinds.sh \

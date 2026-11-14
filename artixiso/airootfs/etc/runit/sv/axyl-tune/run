@@ -1,0 +1,16 @@
+#!/bin/sh
+# Axyl tuning for runit.
+#
+# Applies the zram kernel tunables once, then trims the SSD at boot and once a
+# week. The script never exits so runsv keeps the service up instead of
+# restarting a finished oneshot over and over.
+exec 2>&1
+
+if [ -r /etc/sysctl.d/99-zram.conf ]; then
+    sysctl -q -p /etc/sysctl.d/99-zram.conf
+fi
+
+while :; do
+    fstrim -av || true
+    sleep 604800
+done

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Restore kernel defaults when the service is stopped.
+exec tlp stop 2>/dev/null || true

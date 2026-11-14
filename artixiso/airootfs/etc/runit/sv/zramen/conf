@@ -1,0 +1,7 @@
+# /etc/runit/sv/zramen/conf -- sourced by the zramen run script.
+# Half of RAM, capped at 4 GiB, zstd, high priority.
+export ZRAM_COMP_ALGORITHM=zstd
+export ZRAM_PRIORITY=100
+export ZRAM_SIZE=50
+export ZRAM_MAX_SIZE=4096
+export ZRAMEN_SWAPON_DISCARD=both

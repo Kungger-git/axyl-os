@@ -29,6 +29,10 @@ systemctl enable getty@tty2.service
 systemctl enable bluetooth.service
 # Live clock sync; the installed system keeps its own time service.
 systemctl enable systemd-timesyncd.service
+# zram swap comes from /etc/systemd/zram-generator.conf; TLP and periodic TRIM
+# keep low-spec laptops cool and their SSDs healthy.
+systemctl enable tlp.service
+systemctl enable fstrim.timer
 # Nothing in the desktop needs network-online.target; avoid the boot delay.
 systemctl disable NetworkManager-wait-online.service || true
 systemctl set-default graphical.target
@@ -82,6 +86,8 @@ for f in \
     /etc/skel/.local/bin/battery-guard \
     /etc/skel/.local/bin/start-audio.sh \
     /etc/skel/.local/bin/timer \
+    /etc/skel/.local/bin/screenshot \
+    /etc/skel/.local/bin/hypr-effects \
     /etc/skel/.config/rofi/powermenu.sh \
     /etc/skel/.config/rofi/services.sh \
     /etc/skel/.config/rofi/keybinds.sh \
@@ -92,6 +98,8 @@ for f in \
     /home/axyl/.local/bin/waybar-battery \
     /home/axyl/.local/bin/battery-guard \
     /home/axyl/.local/bin/timer \
+    /home/axyl/.local/bin/screenshot \
+    /home/axyl/.local/bin/hypr-effects \
     /home/axyl/.config/rofi/powermenu.sh \
     /home/axyl/.config/rofi/services.sh \
     /home/axyl/.config/rofi/keybinds.sh \
