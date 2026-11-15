@@ -13,7 +13,7 @@ hl.bind(mod .. " + SHIFT + R",      hl.dsp.exec_cmd(v.reload),     { description
 -- hl.bind(mod .. " + SHIFT + Q",   hl.dsp.exit())
 hl.bind(mod .. " + SHIFT + Q",      hl.dsp.exec_cmd("~/.config/rofi/powermenu.sh"), { description = "Power menu" })
 -- hl.bind(mod .. " + W",              hl.dsp.exec_cmd(v.browser),     { description = "Open browser" })
-hl.bind(mod .. " + W",              hl.dsp.exec_cmd("brave"),     { description = "Open browser" })
+hl.bind(mod .. " + W",              hl.dsp.exec_cmd(v.browser),     { description = "Open browser" })
 hl.bind(mod .. " + E",              hl.dsp.exec_cmd(v.fileManager), { description = "Open file manager" })
 hl.bind(mod .. " + D",              hl.dsp.exec_cmd(v.menu),        { description = "App launcher" })
 hl.bind(mod .. " + A",              hl.dsp.exec_cmd("rofi -show window -theme ~/.config/rofi/style.rasi"), { description = "Window switcher" })

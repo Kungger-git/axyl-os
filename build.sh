@@ -26,6 +26,24 @@ ok()   { echo -e "${GREEN} ok ${RESET}$*"; }
 err()  { echo -e "${RED}ERR ${RESET}$*" >&2; exit 1; }
 note() { echo -e "${MUTED}    $*${RESET}"; }
 
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+    cat <<'EOF'
+Usage: ./build.sh [arch|artix]
+
+Build an Axyl live/install ISO inside Docker.
+
+  arch    Arch Linux + systemd (default)
+  artix   Artix Linux + runit
+
+Output: axyl-out/<variant>/axyl-<variant>-<version>-x86_64.iso
+        plus a .sha256 and a manifest file.
+
+Requirements: Docker (and network access on the first build).
+Test the result with: ./test.sh <variant>
+EOF
+    exit 0
+fi
+
 info "Axyl Linux -- build script (variant: $VARIANT, version: $VERSION)"
 echo ""
 

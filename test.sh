@@ -332,6 +332,7 @@ fi
 QMP_SOCK=$RUN_DIR/qmp-$VARIANT-$FW.sock
 if [[ $DRY_RUN == 0 ]]; then
     mkdir -p -- "$RUN_DIR"
+    install -m 0755 -- "$REPO_DIR/tools/qmp.py" "$RUN_DIR/qmp.py"
     rm -f -- "$QMP_SOCK"
 fi
 CMD+=(-qmp "unix:$QMP_SOCK,server=on,wait=off")
