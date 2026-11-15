@@ -1,4 +1,4 @@
-# CLAUDE.md — Axyl Linux ISO (bspwm / Arch + Artix)
+# CLAUDE.md — Axyl Linux ISO (Arch + Artix, Hyprland)
 
 This file is the authoritative reference for all future Claude sessions in this repository. Follow every rule here precisely and consistently.
 
@@ -6,653 +6,617 @@ This file is the authoritative reference for all future Claude sessions in this 
 
 ## Project Overview
 
-**Axyl Linux** is a custom Linux live ISO built with `archiso`. It boots directly into a fully configured bspwm desktop with a dark navy/coral "Claude" color scheme, greetd autologin, Oh My Zsh, polybar, and an interactive installer terminal. Two variants are supported:
+**Axyl Linux** is a custom Linux live/install ISO built with `archiso`. It boots straight into a **Hyprland / Wayland** desktop themed with the opencode dark palette (`#0a0a0a` background, `#fab283` accent), with greetd autologin, Waybar, Mako, Rofi, Foot, and an interactive full-disk installer.
 
-| Variant | Init system | UEFI bootloader | Build method |
-|---|---|---|---|
-| `arch` | systemd | systemd-boot | Docker (`Dockerfile.arch`), no root needed |
-| `artix` | runit | GRUB | Docker (`Dockerfile.artix`), no root needed |
+There is **no bspwm, X11 session, polybar, sxhkd, picom, or dunst** in this tree. Anything describing those is stale by definition.
+
+| Variant | Init system | Live BIOS | Live UEFI | Installed bootloader |
+|---|---|---|---|---|
+| `arch` | systemd | syslinux | systemd-boot | GRUB |
+| `artix` | runit | syslinux | GRUB | GRUB |
 
 **Build command:** `./build.sh [arch|artix]` — defaults to `arch`.
 
-**Editing environment:** Windows (VS Code / OneDrive). **Build environment:** separate Arch Linux machine (arch variant) or any Linux machine with Docker (artix variant). Files are edited on Windows.
+**Editing environment:** Windows (VS Code / OneDrive). **Build environment:** any Linux host with Docker. Both variants build inside Docker; no native Arch or Artix host is required.
 
 ---
 
 ## Repository Layout
 
-`build.sh` assembles a temporary profile directory for each variant, then runs `mkarchiso` against it. The assembly order is:
+`build.sh` assembles a temporary profile directory per variant, then runs `mkarchiso` inside a container:
 
 1. Copy `archiso/` (base for both variants)
-2. For artix: overlay `artixiso/` on top (`cp -rT` — files in `artixiso/` win on collision)
+2. For artix only: overlay `artixiso/` on top (`cp -rT` — files in `artixiso/` win on collision)
 3. Copy `skel/` into `tmp/airootfs/etc/skel/` (shared; variant-neutral)
+4. Copy the vendored `brave-bin` package into `tmp/airootfs/usr/local/share/axyl/`
 
-`skel/` lives at the repo root so it is clearly not owned by either variant. It is never modified by the override layer merge.
+`skel/` lives at the repo root so it is clearly owned by neither variant.
 
 ```
-skel/                              ← shared user dotfiles; injected by build.sh into both variants
-  .bash_profile                    ← sources .bashrc (POSIX [ ] only, no [[ ]])
-  .bashrc                          ← bash aliases/exports (POSIX case, no [[ ]])
-  .zshrc                           ← Oh My Zsh config, sourced by zsh login shell
-  .xinitrc                         ← manual startx fallback (not used by greetd)
-  .gtkrc-2.0                       ← GTK2 theme (Adwaita-dark + Papirus-Dark)
-  .config/
-    bspwm/bspwmrc                  ← WM config + full autostart (must be executable)
-    bspwm/wallpaper.jpg            ← desktop wallpaper (feh --bg-fill)
-    sxhkd/sxhkdrc                  ← all keybindings
-    polybar/config.ini             ← bar config (Font Awesome icons as raw UTF-8 bytes)
-    polybar/launch.sh              ← kills old instance, starts polybar axyl
-    rofi/config.rasi               ← app launcher + power menu theme
-    kitty/kitty.conf               ← terminal emulator config
-    picom/picom.conf               ← compositor (xrender backend for QEMU compat)
-    dunst/dunstrc                  ← notification daemon
-    nvim/init.lua                  ← neovim config (no plugin manager)
-    gtk-3.0/settings.ini           ← GTK3 theme (Adwaita-dark + Papirus-Dark)
-    zathura/zathurarc              ← PDF viewer theme (Claude palette)
-    redshift/redshift.conf         ← blue light filter (manual location, London defaults)
-    qutebrowser/config.py          ← browser config
-    lf/lfrc                        ← file manager config
-
-archiso/                           ← arch variant base (also the base for artix)
-  profiledef.sh                    ← ISO metadata, bootmodes, compression, file_permissions
-  packages.x86_64                  ← every package installed in the live system
-  pacman.conf                      ← mirrors and repos used during the archiso build
-  airootfs/                        ← overlay: copied verbatim into the live rootfs
+archiso/                              ← base profile for both variants
+  profiledef.sh                       ← ISO metadata, bootmodes, compression, file_permissions
+  packages.x86_64                     ← every package installed in the Arch live system
+  pacman.conf                         ← profile pacman config (ParallelDownloads=1)
+  airootfs/                           ← overlay copied verbatim into the live rootfs
     etc/
-      greetd/config.toml           ← display manager config (autologin via [initial_session])
-      mkinitcpio.conf              ← live initramfs config
+      axyl/variant                    ← "arch"  (artix overlay writes "artix")
+      greetd/config.toml              ← live autologin via [initial_session], VT7
+      issue, locale.conf, vconsole.conf, os-release
+      mkinitcpio.conf
+      pacman.conf, pacman.d/mirrorlist
+      pacman.d/hooks/99-axyl-os-release.hook   ← keeps /usr/lib/os-release branded
+      sysctl.d/99-zram.conf, systemd/zram-generator.conf, tlp.d/50-axyl.conf
     root/
-      customize_airootfs.sh        ← chroot hook: runs after packages installed
-    usr/
-      local/bin/
-        start-bspwm-session        ← X session entry point (called by greetd/startx)
-        axyl-install               ← interactive installer menu (opens in kitty)
-        axyl-setup                 ← post-install helper
-        axyl-powermenu             ← rofi power menu (logout/reboot/shutdown/sleep)
-        axyl-lock                  ← i3lock wrapper (navy background, --nofork)
-        axyl-osd-volume            ← volume OSD helper (pamixer + dunstify progress bar)
-        axyl-osd-brightness        ← brightness OSD helper (brightnessctl + dunstify)
-  efiboot/
-    loader/loader.conf             ← systemd-boot loader config
-    loader/entries/
-      01-axyl-x86_64-linux.conf    ← UEFI boot entry
-  syslinux/                        ← BIOS bootloader files
-
-artixiso/                          ← override layer: files here win over archiso/
-  profiledef.sh                    ← Artix overrides (runit label, GRUB bootmode)
-  pacman.conf                      ← Artix repos + Arch [extra] for missing packages
-  packages.x86_64                  ← Artix package list (runit packages, no systemd)
-  grub/
-    grub.cfg                       ← GRUB UEFI menu (BIOS uses archiso/syslinux/)
-  airootfs/
-    etc/
-      mkinitcpio.conf              ← MODULES includes isofs (required for Artix)
-    root/
-      customize_airootfs.sh        ← runit services, mkinitcpio preset bypass
+      customize_airootfs.sh           ← chroot hook: runs after packages installed
     usr/local/bin/
-      axyl-install                 ← Artix installer guide (pacstrap/genfstab/arch-chroot)
-      axyl-powermenu               ← loginctl reboot/poweroff/suspend (NOT systemctl)
-      axyl-setup                   ← runit greetd enablement (NOT systemctl)
+      start-hyprland-session          ← Wayland session entry point (greetd)
+      brave-wayland                   ← Brave with Ozone/Wayland flags
+      axyl-install                    ← full-disk installer (both variants)
+      axyl-setup                      ← post-install repair helper
+      axyl-game                       ← GameMode + MangoHud (+ gamescope) wrapper
+    usr/local/share/axyl/
+      packages.target                 ← package list the installer pacstraps
+      brave-bin-*.pkg.tar.zst         ← injected by build.sh (not committed)
+  efiboot/loader/                     ← systemd-boot (live Arch UEFI)
+  syslinux/syslinux.cfg               ← live BIOS menu (both variants)
+
+artixiso/                             ← override layer: files here win over archiso/
+  profiledef.sh                       ← Artix overrides (labels, uefi-x64.grub.esp)
+  packages.x86_64                     ← Artix package list (runit packages, zramen, chrony)
+  pacman.conf                         ← system/world/galaxy + Arch [extra]
+  grub/grub.cfg                       ← live GRUB UEFI menu
+  airootfs/
+    etc/axyl/variant                  ← "artix"
+    etc/greetd/config.toml            ← live autologin (identical to archiso)
+    etc/mkinitcpio.conf               ← MODULES includes isofs
+    etc/pacman.conf, pacman.d/mirrorlist
+    etc/runit/sv/axyl-tune/run        ← sysctl + weekly fstrim, never exits
+    etc/runit/sv/tlp/{run,finish}     ← TLP under runsv
+    etc/runit/sv/zramen/conf          ← zramen tunables
+    root/customize_airootfs.sh        ← runit services, initramfs rebuild
+    usr/bin/{pacstrap,arch-chroot,genfstab}          ← arch-install-scripts payload
+    usr/lib/initcpio/{hooks,install}/archiso*        ← mkinitcpio-archiso payload
+    usr/local/bin/{axyl-install,axyl-setup,brave-wayland,start-hyprland-session}
+    usr/local/share/axyl/packages.target
+
+skel/                                 ← shared /etc/skel, injected by build.sh into both variants
+  .bash_profile, .bashrc, .zshrc, .gtkrc-2.0
+  .local/bin/
+    screenshot                        ← grim + slurp, saves + copies to clipboard
+    start-audio.sh                    ← PipeWire bootstrap (systemd or manual)
+    bt-default-sink.sh                ← keeps a bluez sink as default (manual helper)
+    waybar-battery                    ← JSON battery module for Waybar (BAT0/BAT1)
+    battery-guard                     ← low-charge / charge-limit notifications (manual helper)
+    hypr-effects                      ← runtime blur/shadow/animation switch
+    timer                             ← themed ASCII countdown timer
+  .config/
+    hypr/hyprland.lua                 ← entry point; requires conf/*.lua
+    hypr/conf/{variables,palette,appearance,env,input,misc,autostart,keybinds,rules,monitors}.lua
+    hypr/hypridle.conf, hypr/hyprlock.conf        (hyprlock.conf is generated)
+    waybar/{config,style.css}                     (style.css is generated)
+    mako/config                                   (generated)
+    rofi/{config.rasi,style.rasi,powermenu.rasi}  (style/powermenu generated)
+    rofi/{powermenu.sh,services.sh,keybinds.sh}
+    foot/{foot.ini,colors.ini}                    (colors.ini generated)
+    kitty/{kitty.conf,colors.conf}                (colors.conf generated)
+    theme/palette.json                ← SOURCE OF TRUTH for all colours
+    theme/palette.prev.json           ← previous theme (written by themes.py set)
+    theme/render.py                   ← palette.json → every app config
+    theme/themes.py                   ← switch opencode themes / picker / sync
+    theme/opencode-themes/*.json      ← vendored opencode theme assets
+    nvim/{init.lua,lazy-bootstrap.lua,lazy-lock.json,colors/opencode.lua}
+    KDE/Qt: kdeglobals (generated), dolphinrc, kiorc, baloofileinformationrc,
+            filetypesrc, mimeapps.list, qt5ct/, qt6ct/, Kvantum/
+    gtk-3.0/, gtk-4.0/                (settings.ini + gtk.css generated)
+    starship.toml (generated), cava/config (generated block)
+    fastfetch/{config.jsonc,axyl.txt}, zathura/zathurarc, ranger/,
+    MangoHud/MangoHud.conf, pipewire/pipewire.conf.d/99-axyl-echo-cancel.conf,
+    ascii-timer/config, environment.d/qt-theme.conf
+  .local/share/nvim/lazy/                         ← vendored plugin tree (do not prune casually)
+  .local/share/color-schemes/opencode.colors      (generated)
 
 docker/
-  Dockerfile.arch                  ← Docker build environment for the arch variant
-  Dockerfile.artix                 ← Docker build environment for the artix variant
-build.sh                           ← assembles profile, builds Docker image, runs mkarchiso
-flash.sh                           ← writes ISO to USB with dd (USB drives only)
-README.md                          ← user-facing documentation
+  Dockerfile.arch                     ← build-host packages for the arch variant
+  Dockerfile.artix                    ← build-host packages for the artix variant
+  Dockerfile.brave                    ← builds the vendored brave-bin package
+build.sh                              ← assembles profile, builds image, runs mkarchiso
+flash.sh                              ← USB-only ISO writer with checksum verification
+setup.sh                              ← host prep (Docker, optional QEMU)
+test.sh                               ← QEMU harness (BIOS/UEFI, disk, QMP, headless)
+tools/qmp.py                          ← QMP helper copied to ~/axyl-qemu for headless tests
 ```
 
 ---
 
 ## Build System
 
-### profiledef.sh — Current Values
+### Build pipeline (`build.sh`)
+
+1. `mktemp -d /tmp/axyl-<variant>-XXXXX`, `cp -rT archiso/` (plus `artixiso/` for artix).
+2. `cp -rT skel/ → airootfs/etc/skel` — this happens **before** `useradd -m`, so the live user's home is fully populated.
+3. Build `brave-bin` once into `axyl-build/pkgs/` (gitignored) using `docker/Dockerfile.brave`, then copy it into `airootfs/usr/local/share/axyl/`.
+4. `docker rmi` the builder image if present, then `docker build --pull --no-cache` from `docker/Dockerfile.<variant>`. Nothing is cached.
+5. Clear `axyl-out/<variant>/` of old ISOs/checksums, then run `mkarchiso -v -w /tmp/axyl-work -o /out /profile` with `--privileged` (loop mounts).
+6. Write `<iso>.sha256` and `axyl-<variant>-manifest.txt` (`variant`, `version`, `iso`, `sha256`, `built_utc`, `profile`).
+
+Output paths: `axyl-out/arch/axyl-arch-<Y.m.d>-x86_64.iso`, `axyl-out/artix/axyl-artix-<Y.m.d>-x86_64.iso`.
+
+### profiledef.sh — current values
+
+**Arch** (`archiso/profiledef.sh`):
 
 ```bash
-iso_name="axyl"
-iso_label="AXYL_$(date +%Y%m)"          # used as archisolabel= on kernel cmdline
-iso_publisher="Axyl Linux"
-iso_application="Axyl Linux Live/Install CD"
-iso_version="$(date +%Y.%m.%d)"
-install_dir="arch"                       # must match archisobasedir= in boot entry
+iso_name="axyl-arch"
+iso_label="AXYL_ARCH_$(date +%y.%m)"
+iso_application="Axyl Linux Live/Install CD (Arch-based / systemd)"
+install_dir="arch"
 buildmodes=('iso')
 bootmodes=('bios.syslinux' 'uefi.systemd-boot')
-arch="x86_64"
-pacman_conf="pacman.conf"
 airootfs_image_type="squashfs"
 airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '15' '-b' '512K')
 ```
 
-`file_permissions` — all executables that need 755 in the live system:
+**Artix** (`artixiso/profiledef.sh`): identical except
 
 ```bash
-declare -A file_permissions=(
+iso_name="axyl-artix"
+iso_label="AXYL_ARTIX_$(date +%y.%m)"
+iso_application="Axyl Linux Live/Install CD (Artix-based / runit)"
+bootmodes=('bios.syslinux' 'uefi-x64.grub.esp')
+```
+
+Note the label uses a two-digit year (`%y.%m`), and `install_dir` stays `"arch"` on **both** variants — the ISO payload path is `/arch/...` even for `axyl-artix`.
+
+### file_permissions
+
+`file_permissions` is applied by mkarchiso before the chroot runs; paths are live-rootfs paths. **It must be a plain assignment, not `declare -A`:** mkarchiso sources `profiledef.sh` inside a function, where `declare` would create a local array and leave mkarchiso's global `file_permissions` empty — every overlay file would stay `0644`.
+
+Arch list (`archiso/profiledef.sh`):
+
+```bash
+file_permissions=(
     ["/root/customize_airootfs.sh"]="0:0:755"
-    ["/etc/skel/.xinitrc"]="0:0:755"
-    ["/etc/skel/.config/bspwm/bspwmrc"]="0:0:755"
-    ["/etc/skel/.config/polybar/launch.sh"]="0:0:755"
-    ["/usr/local/bin/start-bspwm-session"]="0:0:755"
+    ["/usr/local/bin/start-hyprland-session"]="0:0:755"
+    ["/usr/local/bin/brave-wayland"]="0:0:755"
     ["/usr/local/bin/axyl-install"]="0:0:755"
     ["/usr/local/bin/axyl-setup"]="0:0:755"
-    ["/usr/local/bin/axyl-powermenu"]="0:0:755"
-    ["/usr/local/bin/axyl-lock"]="0:0:755"
-    ["/usr/local/bin/axyl-osd-volume"]="0:0:755"
-    ["/usr/local/bin/axyl-osd-brightness"]="0:0:755"
+    ["/usr/local/bin/axyl-game"]="0:0:755"
+    ["/etc/skel/.local/bin/bt-default-sink.sh"]="0:0:755"
+    ["/etc/skel/.local/bin/waybar-battery"]="0:0:755"
+    ["/etc/skel/.local/bin/battery-guard"]="0:0:755"
+    ["/etc/skel/.local/bin/start-audio.sh"]="0:0:755"
+    ["/etc/skel/.local/bin/timer"]="0:0:755"
+    ["/etc/skel/.local/bin/screenshot"]="0:0:755"
+    ["/etc/skel/.local/bin/hypr-effects"]="0:0:755"
+    ["/etc/skel/.config/rofi/powermenu.sh"]="0:0:755"
+    ["/etc/skel/.config/rofi/services.sh"]="0:0:755"
+    ["/etc/skel/.config/rofi/keybinds.sh"]="0:0:755"
+    ["/etc/skel/.config/theme/render.py"]="0:0:755"
+    ["/etc/skel/.config/theme/themes.py"]="0:0:755"
 )
 ```
 
-`file_permissions` is applied by mkarchiso during the build, before the chroot runs. Paths are relative to the **live rootfs**, not the repo. The skel files are set to 755 here so `useradd -m` copies them with the execute bit preserved.
+Artix adds the overlay-only entries: `/usr/bin/{pacstrap,arch-chroot,genfstab}`, `/usr/lib/initcpio/{hooks,install}/archiso*`, and `/etc/runit/sv/{axyl-tune,tlp}/{run,finish}`.
 
-### mkinitcpio.conf — Current Values
+`customize_airootfs.sh` repeats the `chmod 0755` for the same paths (skel **and** `/home/axyl`) as a safety net, because `useradd -m` does not reliably preserve execute bits.
 
-**Arch variant** (`archiso/airootfs/etc/mkinitcpio.conf`):
-```
-MODULES=(loop squashfs overlay)
-BINARIES=()
-FILES=()
-HOOKS=(base udev modconf archiso archiso_loop_mnt kms block filesystems keyboard)
-COMPRESSION="xz"
-```
+### mkinitcpio.conf
 
-**Artix variant** (`artixiso/airootfs/etc/mkinitcpio.conf`) — identical except MODULES:
-```
-MODULES=(loop squashfs overlay isofs)
-BINARIES=()
-FILES=()
-HOOKS=(base udev modconf archiso archiso_loop_mnt kms block filesystems keyboard)
-COMPRESSION="xz"
-```
+**Arch:** `MODULES=(loop squashfs overlay)`, `HOOKS=(base udev modconf archiso archiso_loop_mnt kms block filesystems keyboard)`, `COMPRESSION="xz"`.
 
-**Why `isofs` is required for Artix but not Arch:** On Arch, the `mkinitcpio-archiso` install hook calls `add_module 'isofs'` internally. On Artix, the live system uses an older `mkinitcpio` from `[world]` that does not always execute Arch-format install hooks completely. Without `isofs` in the initramfs, the `archiso` hook can find the CD-ROM device by label but cannot mount the ISO 9660 filesystem — resulting in kernel panic `VFS: Unable to mount root fs on unknown-block(0,0)`.
+**Artix:** identical except `MODULES=(loop squashfs overlay isofs)`.
+
+**Why `isofs` is required for Artix:** the Arch `mkinitcpio-archiso` install hook adds `isofs` internally. On Artix the hook set is shipped in this overlay and the live system uses Artix's `mkinitcpio` from `[world]`; without `isofs` in the initramfs the `archiso` hook finds the CD-ROM by label but cannot mount ISO 9660 — kernel panic `VFS: Unable to mount root fs on unknown-block(0,0)`.
 
 **Hook rules (non-negotiable):**
-- `archiso` and `archiso_loop_mnt` come from the **`mkinitcpio-archiso`** package (not `archiso`). Always have `mkinitcpio-archiso` in `packages.x86_64`.
-- `archiso_shutdown` was **removed** from `mkinitcpio-archiso` in the current version. Never add it.
-- `archiso_kms` was **deprecated**. Use the standard `kms` hook instead.
-- Hook order matters: `archiso` and `archiso_loop_mnt` must appear before `block`.
-- `MODULES=(loop squashfs overlay)` — all three are required for the live squashfs to mount. Artix also requires `isofs` (see above).
-- This file is at `airootfs/etc/mkinitcpio.conf` (a direct config, not a drop-in). It takes precedence over any drop-in in `mkinitcpio.conf.d/`.
+
+- `archiso` and `archiso_loop_mnt` come from **`mkinitcpio-archiso`**, not from `archiso`.
+- `archiso_shutdown` was removed from `mkinitcpio-archiso`. Never add it.
+- `archiso_kms` is deprecated. Use the standard `kms` hook.
+- `archiso` and `archiso_loop_mnt` must appear before `block`.
+- The file is a direct `/etc/mkinitcpio.conf` (not a drop-in) and takes precedence over anything in `mkinitcpio.conf.d/`.
 
 ### Bootloaders
 
-**UEFI — systemd-boot** (`uefi.systemd-boot`):
-- Config in `archiso/efiboot/loader/loader.conf` and `efiboot/loader/entries/01-axyl-x86_64-linux.conf`
-- Kernel cmdline: `archisobasedir=%INSTALL_DIR% archisolabel=%ARCHISO_LABEL% cow_spacesize=1G`
-- `cow_spacesize=1G` — writable overlay size in RAM
-- `%INSTALL_DIR%` = `arch` (matches `install_dir` in profiledef.sh)
-- `%ARCHISO_LABEL%` = substituted from `iso_label` at build time
-- systemd-boot requires **no grub package on the build host**
+**Live BIOS — syslinux** (`archiso/syslinux/syslinux.cfg`, used by both variants; `TIMEOUT 30` = 3 s):
 
-**BIOS — syslinux** (`bios.syslinux`):
-- `syslinux` package must be in `packages.x86_64` AND on the build host
+```
+APPEND archisobasedir=%INSTALL_DIR% archisolabel=%ARCHISO_LABEL% cow_spacesize=1G zswap.enabled=0
+```
 
-### customize_airootfs.sh — Execution Order
+Entries: normal, `nomodeset`, reboot, poweroff.
 
-This script runs in a chroot of the live rootfs after all packages are installed. Network access is available (inherits host network namespace via arch-chroot). **Order matters:**
+**Live Arch UEFI — systemd-boot** (`archiso/efiboot/loader/`): same cmdline, timeout 3, `editor no`. Initrds reference `/%INSTALL_DIR%/boot/intel-ucode.img`, `.../amd-ucode.img`, and `/%INSTALL_DIR%/boot/x86_64/initramfs-linux.img`. systemd-boot needs **no grub package on the build host**.
+
+**Live Artix UEFI — GRUB** (`artixiso/grub/grub.cfg`): `uefi-x64.grub.esp` calls `grub-mkstandalone` on the build host, so `grub` MUST be in `docker/Dockerfile.artix`. Timeout 5.
+
+**Installed systems always use GRUB** (UEFI `--target=x86_64-efi --efi-directory=/boot --bootloader-id=Axyl`, BIOS `--target=i386-pc`) with a 2 s menu and `quiet zswap.enabled=0`. Do not "fix" the live Arch UEFI bootmode to match the installed system.
+
+### customize_airootfs.sh — execution order
+
+Runs in a chroot of the live rootfs after packages are installed. **Order matters.**
+
+Arch (`archiso/airootfs/root/customize_airootfs.sh`):
 
 1. `pacman-key --init && pacman-key --populate archlinux` — MUST be first
-2. Locale, timezone, hostname, /etc/hosts
-3. `systemctl enable` — NetworkManager, greetd, acpid; `set-default graphical.target`
-4. **Git clone Oh My Zsh into `/etc/skel/.oh-my-zsh/`** — MUST be before `useradd -m` so it is copied to `/home/axyl/`
-5. `useradd -m -G ... -s /bin/zsh axyl` — copies all of `/etc/skel/` to `/home/axyl/`
-6. Set passwords, write sudoers, run xdg-user-dirs-update
-7. `paccache -r -k0` — clean pacman cache to reduce ISO size
+2. Locale (`en_US.UTF-8`), timezone `Asia/Manila`, hostname `axyl`, `/etc/hosts`
+3. Branding: `install -Dm644 /etc/os-release /usr/lib/os-release`
+4. `systemctl enable`: NetworkManager, greetd, getty@tty2, bluetooth, systemd-timesyncd, tlp, fstrim.timer, earlyoom, fwupd-refresh.timer; `disable NetworkManager-wait-online`; `set-default graphical.target`
+5. Create the `greeter` group/user and `/var/lib/greetd` if the package did not
+6. `groupadd -f` for wheel/audio/video/render/input/storage/optical/network, then `useradd -m -G ... -s /bin/zsh axyl` (copies `/etc/skel`, including the vendored nvim tree)
+7. Passwords (`axyl`/`axyl`, `root`/`toor`), passwordless sudo for `axyl`, `xdg-user-dirs-update`, `~/Pictures/Screenshots`
+8. Install the vendored `brave-bin` package, retrying with `CheckSpace` disabled on failure
+9. `chmod 0755` safety net (skel + `/home/axyl`)
+10. Run `~/.config/theme/render.py` as `axyl` so generated files belong to the user
+11. `fc-cache -fv` for root and `axyl`
+12. `pacman -Scc --noconfirm`
 
-### greetd Config
-
-```toml
-[terminal]
-vt = 2
-
-[default_session]
-command = "agreety --cmd /usr/local/bin/start-bspwm-session"
-user = "greeter"
-
-[initial_session]
-command = "startx /usr/local/bin/start-bspwm-session -- :0 vt2 -keeptty -nolisten tcp"
-user = "axyl"
-```
-
-**Critical:** `[initial_session]` is the autologin mechanism. `[default_session]` is the fallback greeter shown after the session ends. Using only `[default_session]` for autologin is WRONG — greetd will show a blank screen waiting for a greeter that never runs.
-
-`agreety` ships with the `greetd` package. It creates a `greeter` user/group on install.
-
-### Session Startup Chain
-
-```
-greetd (PAM session for axyl)
-  └─ startx /usr/local/bin/start-bspwm-session -- :0 vt2
-       └─ X server (:0, vt2)
-       └─ start-bspwm-session
-            ├─ xset, xsetroot (keyboard rate, cursor, DPMS off)
-            ├─ chmod +x ~/.config/bspwm/bspwmrc   ← safety net for execute bit
-            └─ exec dbus-run-session /usr/bin/bspwm
-                 └─ bspwm (auto-execs ~/.config/bspwm/bspwmrc if executable)
-                      └─ bspwmrc autostart:
-                           ├─ sxhkd &
-                           ├─ # picom (commented out; enable for shadows)
-                           ├─ feh --bg-fill wallpaper.jpg
-                           ├─ pipewire &, wireplumber &, pipewire-pulse &
-                           ├─ [wait for pactl readiness, 5 × 300ms]
-                           ├─ ~/.config/polybar/launch.sh &
-                           ├─ dunst &
-                           ├─ [2s deferred] polkit-gnome, nm-applet, numlockx, xss-lock
-                           └─ # 5s block removed (copyq/blueman/udiskie/redshift)
-```
-
-bspwm uses `execv()` to run bspwmrc with its shebang (`#!/usr/bin/env bash`). If bspwmrc is not executable, bspwm silently skips it — no sxhkd, no polybar, no keybindings. The `chmod +x` in `start-bspwm-session` is a required safety net.
-
----
-
-## Build Requirements
-
-### Host requirement
-
-Both variants build inside Docker — no native Arch/Artix install required. The only host dependency is Docker with the daemon running.
-
-### docker/Dockerfile.arch — build-host packages
-
-These are installed into the `archlinux:latest` Docker container:
-
-```
-archiso          ← provides mkarchiso
-dosfstools       ← mkfs.fat for the ESP partition
-e2fsprogs        ← mkfs.ext4
-libisoburn       ← xorriso, creates the ISO image
-squashfs-tools   ← mksquashfs for the rootfs image
-syslinux         ← BIOS bootloader generation
-mkinitcpio       ← builds the initramfs
-git              ← customize_airootfs.sh clones Oh My Zsh
-```
-
-`systemd` (already in `archlinux:latest` base) provides `systemd-bootx64.efi`, which mkarchiso needs on the build host for the `uefi.systemd-boot` bootmode. `grub` is NOT needed.
-
-### Network requirement during build
-
-`customize_airootfs.sh` clones three git repositories from GitHub:
-- `https://github.com/ohmyzsh/ohmyzsh.git` → `/etc/skel/.oh-my-zsh`
-- `https://github.com/zsh-users/zsh-autosuggestions.git` → `.oh-my-zsh/custom/plugins/zsh-autosuggestions`
-- `https://github.com/zsh-users/zsh-syntax-highlighting.git` → `.oh-my-zsh/custom/plugins/zsh-syntax-highlighting`
-
-The Docker container inherits host network, so DNS and TCP work transparently.
-
----
-
-## Build Commands
+Artix inserts the initramfs rebuild after branding (step 3) and replaces step 4 with runit symlinks:
 
 ```bash
-# Arch variant (Docker, no sudo needed)
-./build.sh arch
-
-# Artix variant (Docker, no sudo needed)
-./build.sh artix
-
-# Flash to USB
-sudo bash flash.sh ./axyl-out/axyl-*.iso /dev/sdX
-
-# Test BIOS boot in QEMU
-qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G -boot d
-
-# Test UEFI boot in QEMU (requires edk2-ovmf on build host)
-qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
-  -bios /usr/share/ovmf/x64/OVMF.fd
-```
-
----
-
-## Package List Reference
-
-`archiso/packages.x86_64` — every package here is installed in the live system. Groups:
-
-| Group | Key packages | Purpose |
-|---|---|---|
-| Base | base, base-devel, linux, linux-firmware, linux-headers, intel-ucode, amd-ucode | Core system |
-| Initramfs | mkinitcpio, **mkinitcpio-archiso**, archlinux-keyring | Live boot hooks |
-| Bootloaders | grub, efibootmgr, mtools, os-prober, syslinux | BIOS + UEFI boot |
-| Xorg | xorg-server, xorg-xinit, xorg-xrandr, xorg-xsetroot, xorg-xrdb, xorg-xset, xorg-xkill, xorg-xdpyinfo, xorg-xauth, xterm | Display server |
-| GPU | xf86-video-vesa, xf86-video-amdgpu, xf86-video-nouveau, mesa, libva-mesa-driver, vulkan-radeon, vulkan-intel | GPU support |
-| WM | bspwm, sxhkd, picom, feh, dunst, libnotify, xdg-user-dirs, xdg-utils, xdg-desktop-portal, xdg-desktop-portal-gtk | Window manager stack |
-| Desktop | greetd, polybar, rofi, kitty | Display manager + bar + launcher + terminal |
-| Editors | neovim, vim, nano | Text editors |
-| Files | lf | TUI file manager (opens nsxiv/zathura/mpv via mime) |
-| Media | mpv, ffmpeg, imagemagick | Media playback + processing |
-| Audio | **pipewire**, pipewire-alsa, **pipewire-pulse**, **wireplumber**, gst-plugin-pipewire, alsa-utils, alsa-firmware, pavucontrol, pamixer, playerctl | PipeWire audio stack (PulseAudio-compatible) |
-| Network | networkmanager, network-manager-applet, wpa_supplicant, openssh, iptables | Network |
-| Dev tools | git, curl, wget, python, python-pip, jq, pacman-contrib | Dev + scripting |
-| Fonts | ttf-jetbrains-mono, ttf-font-awesome, noto-fonts, noto-fonts-emoji, ttf-liberation, terminus-font | All fonts used by polybar/kitty/rofi |
-| Theme | papirus-icon-theme, gnome-themes-extra, lxappearance, adwaita-icon-theme, polkit-gnome | GTK theme (Adwaita-dark) + icons + polkit agent |
-| Shell | zsh | Oh My Zsh runtime |
-| Utilities | **qutebrowser**, pv, btop, fastfetch, flameshot, xclip, xdotool, brightnessctl, numlockx, zip, unzip, p7zip, inxi, acpi, acpid, procps-ng, psmisc, util-linux | General tools |
-| Security | i3lock, xss-lock | Screen locker + auto-lock on suspend |
-| Desktop extras | udiskie, udisks2, redshift | Auto-mount, blue-light filter |
-| Bluetooth | bluez, bluez-utils, blueman | Bluetooth stack + GUI applet |
-| Viewers | zathura, zathura-pdf-mupdf, nsxiv | PDF + image viewers |
-| Installer | arch-install-scripts, archinstall, reflector, parted, gptfdisk, dosfstools, e2fsprogs, btrfs-progs, cryptsetup, lvm2, ntfs-3g, polkit | Target install tools |
-| Gaming/maintenance | gamescope, gamemode, mangohud, earlyoom, fwupd, flatpak (`earlyoom-runit` on Artix) | `axyl-game` wrapper, OOM protection, firmware updates, sandboxed apps |
-
-### Gaming and maintenance additions
-
-- `axyl-game` (both variants) wraps a game with `gamemoderun` and `MANGOHUD=1`;
-  `--gamescope` runs it inside a nested gamescope window. It is registered in
-  both `profiledef.sh` `file_permissions` files and copied by `axyl-install`.
-- `skel/.config/MangoHud/MangoHud.conf` and
-  `skel/.config/pipewire/pipewire.conf.d/99-axyl-echo-cancel.conf` are copied
-  through `/etc/skel`; no extra package is needed for echo cancellation
-  because `pipewire-audio` already pulls in `webrtc-audio-processing`.
-- Early OOM is enabled as `earlyoom.service` on Arch and by the `earlyoom`
-  runit symlink on Artix. `fwupd-refresh.timer` is enabled on Arch only;
-  Artix has no `fwupd-runit`, so firmware updates stay manual.
-- `axyl-game` must be chmod'd in both `customize_airootfs.sh` payload lists.
-
----
-
-## Color Scheme — Claude Palette
-
-| Role | Hex | Used in |
-|---|---|---|
-| Background | `#1a1a2e` | All app backgrounds |
-| Background Alt | `#16213e` | Input bars, tab backgrounds |
-| Foreground | `#e6e1d8` | Primary text |
-| Muted | `#6e7290` | Inactive/secondary text |
-| Accent (coral) | `#d97757` | Borders, focused, prompt, cursor |
-| Accent Alt | `#e8927c` | Presel feedback, hover states |
-| Red | `#ff5555` | Urgent, errors |
-
----
-
-## Keybindings Summary
-
-| Binding | Action |
-|---|---|
-| `super + Return` | kitty terminal |
-| `super + space` | rofi app launcher |
-| `super + e` | lf file manager (in kitty) |
-| `super + b` | qutebrowser |
-| `super + shift + e` | axyl-powermenu (logout/reboot/shutdown/sleep) |
-| `super + l` | lock screen (axyl-lock → i3lock) |
-| `super + shift + q` | close focused window |
-| `super + shift + k` | kill focused window |
-| `super + {h,j,k,l}` | focus west/south/north/east |
-| `super + shift + {h,j,k,l}` | swap node west/south/north/east |
-| `alt + Tab / alt + shift + Tab` | cycle windows forward/back |
-| `super + bracket{left,right}` | focus prev/next desktop |
-| `super + {grave,Tab}` | focus last node / last desktop |
-| `super + {o,i}` | focus older/newer in history |
-| `super + {p,comma,period}` | focus parent/first/second child |
-| `super + {1-9}` | focus workspace |
-| `super + shift + {1-9}` | move node to workspace |
-| `super + {t,shift+t}` | set tiled / pseudo_tiled |
-| `super + f` | toggle fullscreen |
-| `super + shift + space` | toggle floating |
-| `super + m` | cycle desktop layout |
-| `super + r` | rotate node 90° |
-| `super + y` | send newest marked to newest preselected |
-| `super + g` | swap with biggest window |
-| `super + ctrl + {h,j,k,l}` | preselect direction |
-| `super + ctrl + {1-9}` | preselect split ratio |
-| `super + ctrl + space` | cancel preselection |
-| `super + ctrl + {m,x,y,z}` | toggle marked/locked/sticky/private flag |
-| `super + alt + {h,j,k,l}` | expand window |
-| `super + alt + shift + {h,j,k,l}` | shrink window |
-| `super + {Left,Down,Up,Right}` | move floating window |
-| `super + Escape` | reload sxhkd |
-| `super + shift + r` | restart bspwm |
-| `super + alt + Escape` | quit bspwm |
-| `Print` | flameshot gui (region screenshot) |
-| `super + Print` | flameshot screen -c (full screen) |
-| `XF86Audio*` | axyl-osd-volume (pamixer + dunstify OSD) |
-| `XF86Brightness*` | axyl-osd-brightness (brightnessctl + dunstify OSD) |
-
----
-
----
-
-## Artix Variant — Build System
-
-### Overview
-
-The artix variant builds inside Docker so it does not require an Artix host. `build.sh artix` always rebuilds the Docker image from scratch (`docker rmi` then `docker build`) to pick up any `Dockerfile.artix` changes, then merges `archiso/` + `artixiso/` into a temp profile and runs `mkarchiso` inside the container.
-
-### Dockerfile.artix — Required Build-Host Packages
-
-These are installed into the Docker container (the build host), not the live system:
-
-```
-archiso             ← provides mkarchiso (from Arch [extra])
-arch-install-scripts ← provides genfstab (from Arch [extra])
-dosfstools          ← mkfs.fat for the ESP partition
-e2fsprogs           ← mkfs.ext4
-libisoburn          ← xorriso, creates the ISO image
-squashfs-tools      ← mksquashfs for the rootfs image
-syslinux            ← BIOS bootloader generation
-grub                ← grub-mkstandalone for uefi-x64.grub.esp UEFI image
-mkinitcpio          ← builds the initramfs (from Arch [extra])
-git                 ← customize_airootfs.sh clones Oh My Zsh
-```
-
-**Critical:** `grub` MUST be in the Dockerfile. The `uefi-x64.grub.esp` bootmode calls `grub-mkstandalone` on the build host to create the EFI image. Without `grub` on the build host, UEFI setup fails.
-
-The Arch `[extra]` repo is added to the container's `/etc/pacman.conf` with `SigLevel = Never`. The section **must be named `[extra]`** — pacman fetches `<section-name>.db` from the mirror server; a custom name like `[arch-extra]` would request a non-existent `arch-extra.db` and 404.
-
-### artixiso/pacman.conf — Repo Structure
-
-```ini
-[system]   ← Artix core (≈ Arch core, rebuilt without systemd)
-[world]    ← Artix extra (≈ Arch extra, rebuilt without systemd)
-[galaxy]   ← Artix community
-
-[extra]    ← Arch's extra repo — for mkinitcpio-archiso and arch-install-scripts
-Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
-SigLevel = Never
-```
-
-All Artix repos use `Include = /etc/pacman.d/mirrorlist` — the container's native mirrorlist from the `artixlinux/artixlinux:base-runit` Docker image. Do NOT replace or overwrite this mirrorlist; it is the same one that successfully downloads packages in the `docker build` step.
-
-**`[artix]` repo is NOT present** — it is an internal Artix repo that is not externally mirrored. All packages needed (including `artix-keyring`) are in `[system]`.
-
-### artixiso/packages.x86_64 — Key Differences from Arch
-
-| Arch package | Artix equivalent | Notes |
-|---|---|---|
-| `archlinux-keyring` | `artix-keyring` | Artix uses its own GPG keyring |
-| (none) | `dbus-runit`, `elogind-runit`, `networkmanager-runit`, `greetd-runit`, `acpid-runit`, `bluez-runit` | Every daemon needs its `-runit` companion |
-| `systemd` (implicit) | `elogind`, `elogind-runit` | Seat/session management; provides `loginctl` |
-| `reflector` | *(absent)* | Reflector uses Arch-mirror API only; non-functional on Artix |
-| `artix-install-scripts` | `arch-install-scripts` | `artix-install-scripts` does NOT exist in public Artix repos |
-| `archinstall` | *(absent)* | Arch-specific guided installer; not available for Artix |
-
-**runit service pairs** — every daemon enabled in `customize_airootfs.sh` needs both packages:
-
-| Service name | Base package | runit package |
-|---|---|---|
-| `dbus` | `dbus` | `dbus-runit` |
-| `elogind` | `elogind` | `elogind-runit` |
-| `NetworkManager` | `networkmanager` | `networkmanager-runit` |
-| `greetd` | `greetd` | `greetd-runit` |
-| `acpid` | `acpid` | `acpid-runit` |
-| `bluetoothd` | `bluez` | `bluez-runit` |
-
-### artixiso/profiledef.sh — Key Differences
-
-```bash
-iso_label="AXYL_ARTIX_$(date +%Y%m)"   # distinct label from the Arch variant
-bootmodes=('bios.syslinux' 'uefi-x64.grub.esp')  # GRUB, not systemd-boot
-```
-
-`uefi.systemd-boot` MUST NOT be used — it requires `systemd-bootx64.efi` from the `systemd` package, which is not installed on Artix. The build fails with `install: cannot stat '.../systemd-bootx64.efi': No such file or directory`.
-
-### artixiso/grub/grub.cfg — GRUB UEFI Config
-
-mkarchiso's `uefi-x64.grub.esp` bootmode substitutes `%INSTALL_DIR%` and `%ARCHISO_LABEL%` in this file before embedding it with `grub-mkstandalone`.
-
-**Critical path rule:** microcode images are NOT in the `x86_64` subdirectory:
-
-```
-# CORRECT
-initrd /%INSTALL_DIR%/boot/intel-ucode.img /%INSTALL_DIR%/boot/amd-ucode.img \
-       /%INSTALL_DIR%/boot/x86_64/initramfs-linux.img
-
-# WRONG — causes "file not found" at GRUB boot
-initrd /%INSTALL_DIR%/boot/x86_64/intel-ucode.img ...
-```
-
-The kernel and initramfs ARE in `x86_64/`. The ucode images are directly in `boot/`.
-
-**Font loading:** `loadfont unicode` must appear before `terminal_output gfxterm`. Without it, GRUB renders box-drawing characters (borders) as `?`.
-
-### artixiso/airootfs/root/customize_airootfs.sh — Execution Order
-
-1. `pacman-key --init && pacman-key --populate artix` — MUST be first; uses Artix keyring
-2. Locale, timezone, hostname, /etc/hosts
-3. **mkinitcpio initramfs rebuild** — MUST be early (see below)
-4. runit service symlinks via `ln -s /etc/runit/sv/<svc> /etc/runit/runsvdir/default/`
-5. Git clone Oh My Zsh — MUST be before `useradd -m`
-6. `groupadd -f` for wheel/audio/video/input/storage/optical/network — MUST be before `useradd`
-7. `useradd -m -G wheel,audio,video,input,storage,optical,network -s /bin/zsh axyl`
-8. Passwords, sudoers, xdg-user-dirs-update, chmod on scripts
-9. `paccache -r -k0`
-
-**runit service enablement** — NOT `systemctl enable`. Pattern:
-```bash
-for svc in dbus elogind NetworkManager greetd acpid bluetoothd; do
-    [ -d "/etc/runit/sv/$svc" ] && ln -sf "/etc/runit/sv/$svc" "$RUNIT_DEFAULT/"
+for svc in dbus NetworkManager greetd bluetoothd agetty-tty2 chrony tlp zramen axyl-tune earlyoom; do
+    [ -d "/etc/runit/sv/$svc" ] && ln -sf "/etc/runit/sv/$svc" /etc/runit/runsvdir/default/
 done
 ```
 
-**groupadd -f is required** — Artix's `esysusers` hook may not create `storage` and `optical` groups before `useradd` runs inside the mkarchiso chroot. `groupadd -f` creates them if absent; `-f` makes it a no-op if they already exist.
+`elogind-runit` already enables `logind` (an alias for the same service) — never add `elogind` as well, or two supervisors run one daemon. Only `agetty-tty2` stays enabled: greetd owns VT7 and tty2 is the documented fallback console.
 
-### mkinitcpio Preset Bypass (Artix-specific)
+### greetd and the session chain
 
-`mkinitcpio-archiso` (Arch [extra]) installs or modifies `/etc/mkinitcpio.d/linux.preset` to load a drop-in named `archiso` from `mkinitcpio.conf.d/`. Artix's `mkinitcpio` (from `[world]`, older version) generates a `Configuration: archiso` INI-format section header in the merged temp file, then tries to source it as bash — resulting in:
+Live config (`archiso/airootfs/etc/greetd/config.toml`, copied verbatim into `artixiso/`), VT7:
+
+```toml
+[default_session]
+command = "agreety --cmd /usr/local/bin/start-hyprland-session"
+user = "greeter"
+
+[initial_session]
+command = "/usr/local/bin/start-hyprland-session"
+user = "axyl"
+```
+
+`[initial_session]` **is** the autologin mechanism. `[default_session]` is only the fallback greeter shown after the session ends. The installer and `axyl-setup` rewrite this file **without** `[initial_session]` for installed systems.
+
+```
+greetd (PAM session for axyl, VT7)
+  └─ /usr/local/bin/start-hyprland-session
+       ├─ XDG_RUNTIME_DIR: reuse /run/user/<uid>, else private mktemp dir
+       ├─ XDG_SESSION_TYPE=wayland, XDG_SESSION_DESKTOP/XDG_CURRENT_DESKTOP=Hyprland
+       ├─ QT_QPA_PLATFORM="wayland;xcb", QT_QPA_PLATFORMTHEME=qt6ct,
+       │  QT_STYLE_OVERRIDE=kvantum, MOZ_ENABLE_WAYLAND=1,
+       │  ELECTRON_OZONE_PLATFORM_HINT=auto
+       ├─ VM detection (qemu/kvm/virtualbox/vmware): WLR_NO_HARDWARE_CURSORS=1 and,
+       │  only when /dev/dri/renderD128 is absent, WLR_RENDERER=pixman
+       ├─ runs ~/.config/theme/render.py (regenerates every themed file)
+       └─ exec dbus-run-session start-hyprland
+            └─ hyprland.lua requires conf/{monitors,env,autostart,appearance,input,misc,keybinds,rules}
+                 └─ autostart on "hyprland.start":
+                      start-audio.sh, waybar, mako, hypridle,
+                      wl-paste --watch cliphist store,
+                      /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+```
+
+`start-hyprland-session` is **not** an X session: there is no `startx`, no `.xinitrc`, no `xset`/`xsetroot`.
+
+---
+
+## Desktop Architecture
+
+### Hyprland configuration (Lua)
+
+Hyprland **≥ 0.55** is required: if `~/.config/hypr/hyprland.lua` exists it is loaded instead of `hyprland.conf`. Editing a `.conf` file has no effect.
+
+- `hyprland.lua` is only a list of `require()` calls. Each module runs in its own scope, so a syntax error in one does not stop the others.
+- Shared values (terminal, file manager, launcher, modifier) live in `conf/variables.lua`, which returns a table.
+- Colours come from `conf/palette.lua`, which is **generated** — never edit it.
+- Keybinds in `conf/keybinds.lua` all carry a `description`, because `rofi/keybinds.sh` builds the cheat sheet from `hyprctl binds -j`.
+- `hyprctl keyword` does not work with a Lua config on 0.5x; use `hyprctl eval "hl.config({...})"`. `hypr-effects` tries `eval` first and falls back to keywords for older releases.
+
+### Theme engine
+
+`~/.config/theme/palette.json` is the single source of truth for every colour in the image. `render.py` fills templates with those tokens and writes:
+
+```
+hypr/conf/palette.lua          hypr/hyprlock.conf
+kitty/colors.conf             foot/colors.ini
+mako/config                   fastfetch/config.jsonc
+waybar/style.css              rofi/style.rasi
+rofi/powermenu.rasi           starship.toml
+nvim/colors/opencode.lua      cava/config (managed [color] block)
+kdeglobals                    .local/share/color-schemes/opencode.colors
+qt6ct/colors/opencode.conf    gtk-3.0/{settings.ini,gtk.css}
+gtk-4.0/{settings.ini,gtk.css}
+```
+
+Every generated file carries a `GENERATED by ~/.config/theme/render.py -- do not edit by hand` header. To change the look, edit `palette.json` (or the templates inside `render.py`) and run:
+
+```bash
+~/.config/theme/render.py            # regenerate
+~/.config/theme/render.py --reload   # regenerate + hyprctl reload, kitty USR1, waybar SIGUSR2
+```
+
+`themes.py` switches the whole desktop to one of the vendored opencode themes:
+
+```bash
+~/.config/theme/themes.py list       # selectable themes, current marked
+~/.config/theme/themes.py current
+~/.config/theme/themes.py set <name> # builds palette.json, renders, updates opencode cli.json
+~/.config/theme/themes.py pick       # rofi picker (SUPER + SHIFT + T)
+~/.config/theme/themes.py sync       # re-vendor theme JSONs from GitHub for the installed opencode
+```
+
+`set` keeps the previous palette in `palette.prev.json`, warns below 4.5:1 contrast, restores the old palette if rendering fails, and writes `theme = { name, mode = "dark" }` to `~/.config/opencode/cli.json` before calling `opencode reload`. `lucent-orng` is excluded because all its backgrounds are transparent.
+
+### Desktop components
+
+| Role | Component | Notes |
+|---|---|---|
+| Compositor | Hyprland (Lua config) | Wayland + XWayland fallback |
+| Bar | Waybar | `waybar/config` (JSONC), generated `style.css` |
+| Notifications | Mako | generated config |
+| Launcher / menus | Rofi | `drun`, window switcher (`SUPER+A`), power, services, keybinds, emoji |
+| Terminal | Foot | Kitty is installed as a fallback and themed too |
+| Browser | Brave (`brave-bin`) | `brave-wayland` adds Ozone/Wayland flags |
+| File manager | Dolphin (KDE/KIO) | Kvantum + qt6ct + `kdeglobals` |
+| Editor | Neovim | vendored `lazy.nvim` tree + parsers; no network at startup |
+| Shell | zsh + Starship | autosuggestions, syntax highlighting, completion |
+| Audio | PipeWire / WirePlumber | `wpctl`, `pactl`, pavucontrol |
+| Lock / idle | hyprlock + hypridle | autolock disabled; DPMS off after 330 s |
+| Clipboard | cliphist + wl-clipboard | `wl-paste --watch cliphist store` in autostart |
+| Screenshots | grim + slurp + jq | `~/.local/bin/screenshot` |
+| Wallpaper | none | solid `misc.background_color`; Hyprland logo/mascot disabled |
+
+Helpers that are **not** auto-started (run them manually or from a bind): `bt-default-sink.sh`, `battery-guard`. `waybar-battery` is invoked by Waybar every 10 s.
+
+### Rofi scripts
+
+- `rofi/powermenu.sh` — Lock (`hyprlock`), Logout (`hyprctl dispatch exit`), Reboot/Shutdown/Suspend via `loginctl`. Works on systemd and elogind.
+- `rofi/services.sh` — toggles Bluetooth, Early OOM, Wi-Fi adapters, and installed services (Docker/SSH/Apache/Proton VPN); plus NetworkManager wait-online (systemd) and the Hyprland effects switch. Detects systemd vs runit at runtime (`/run/systemd/system`), uses `systemctl` or `sv` + `runsvdir` symlinks; root actions via passwordless sudo, else `pkexec`. `--list` prints the menu without opening rofi.
+- `rofi/keybinds.sh` — reads `hyprctl binds -j` and renders the cheat sheet. `--list` prints text.
+
+### Effects switch
+
+`hypr-effects [status|full|performance|toggle]` switches `decoration:blur`, `decoration:shadow`, `animations` at runtime only; `hyprctl reload` or a re-login restores `conf/appearance.lua`.
+
+---
+
+## Colour Scheme
+
+The default palette is opencode's dark `opencode` theme. `palette.json` roles:
+
+| Role | Hex | Used in |
+|---|---|---|
+| `bg` | `#0a0a0a` | Desktop background, bar, terminal |
+| `bg_panel` | `#141414` | Panels, notifications, lock screen |
+| `bg_elem` | `#1e1e1e` | Inputs, selected rows |
+| `overlay` | `#4e4e4e` | Overlays, disabled text |
+| `border` | `#484848` | Borders, separators |
+| `scrollbar` | `#5a5a5a` | Scrollbars |
+| `fg` | `#eeeeee` | Primary text |
+| `fg_muted` | `#808080` | Secondary text, inactive |
+| `accent` | `#fab283` | Focused border, prompt, active workspace |
+| `secondary` | `#5c9cf5` | Links, info highlights |
+| `accent_alt` | `#9d7cd8` | Preselection, hover |
+| `red` / `green` / `yellow` / `orange` / `cyan` | `#e06c75` `#7fd88f` `#f8c17b` `#f5a742` `#56b6c2` | Urgent, success, warnings, highlights |
+
+`bright.*` provides the lighter ramp used by terminals and Neovim.
+
+The live desktop uses `SUPER + SHIFT + T` (theme picker) to switch themes; the choice persists in `palette.json` and `~/.config/opencode/cli.json`.
+
+---
+
+## Keybindings
+
+All binds use **Super**. Source: `skel/.config/hypr/conf/keybinds.lua`.
+
+| Binding | Action |
+|---|---|
+| `SUPER + Return` | Foot terminal |
+| `SUPER + D` | Rofi app launcher |
+| `SUPER + A` | Rofi window switcher |
+| `SUPER + W` | Brave |
+| `SUPER + E` | Dolphin |
+| `SUPER + Q` | Close window |
+| `SUPER + L` | Lock (hyprlock) |
+| `SUPER + SHIFT + Q` | Power menu |
+| `SUPER + SHIFT + M` | Services menu |
+| `SUPER + SHIFT + E` | Exit Hyprland (`hyprshutdown` if present, else `hl.dsp.exit()`) |
+| `SUPER + SHIFT + R` | Reload Hyprland config |
+| `SUPER + SHIFT + B` | Reload Waybar |
+| `SUPER + SHIFT + D` | Displays off (DPMS, 500 ms delay) |
+| `SUPER + SHIFT + T` | Theme picker |
+| `SUPER + /` | Keybind cheat sheet |
+| `SUPER + X` | Clipboard history |
+| `SUPER + SHIFT + X` | Emoji picker |
+| `SUPER + C` | Colour picker (hyprpicker) |
+| `Print` | Screenshot region |
+| `SHIFT + Print` | Screenshot window |
+| `SUPER + Print` | Screenshot output |
+| `SUPER + SHIFT + C` | Screenshot region (alt) |
+| `SUPER + SHIFT + A` | Screenshot region to clipboard |
+| `SUPER + {left,right,up,down}` | Focus direction |
+| `SUPER + SHIFT + {left,right,up,down}` | Swap window in direction |
+| `SUPER + CTRL + {left,right,up,down}` | Resize window (repeating, 20 px) |
+| `SUPER + ALT + {left,right}` | Focus monitor |
+| `SUPER + SHIFT + ALT + {left,right}` | Move window to monitor |
+| `SUPER + {1..9,0}` | Focus workspace 1–10 |
+| `SUPER + SHIFT + {1..9,0}` | Move window to workspace |
+| `SUPER + SHIFT + ALT + {1..9,0}` | Move window silently |
+| `SUPER + V` | Toggle floating |
+| `SUPER + P` | Toggle pseudotile |
+| `SUPER + J` | Toggle split |
+| `SUPER + F` | Toggle fullscreen |
+| `SUPER + SHIFT + F` | Toggle maximize |
+| `SUPER + SHIFT + P` | Pin window |
+| `SUPER + CTRL + C` | Center window |
+| `SUPER + grave` | Raise window to top |
+| `SUPER + G` | Toggle window group |
+| `SUPER + SHIFT + G` | Lock window group |
+| `SUPER + TAB` / `SUPER + SHIFT + TAB` | Next/previous in group |
+| `SUPER + CTRL + TAB` | Move window in group |
+| `SUPER + S` / `SUPER + SHIFT + S` | Toggle scratchpad / move window there |
+| `SUPER + R` | Enter resize submap (arrows resize, Esc/Enter exit) |
+| `SUPER + mouse_down/up` | Next/previous workspace |
+| `SUPER + mouse drag` / `SUPER + right drag` | Move / resize window |
+| `ALT + Tab` | Cycle windows (X11-style MRU) |
+| `XF86Audio*` | `wpctl` volume/mute, `playerctl` media |
+| `XF86MonBrightness*` | `brightnessctl` 10 % steps |
+
+Volume, brightness and media binds use `locked = true` so they keep working on the lock screen.
+
+---
+
+## Packages
+
+`archiso/packages.x86_64` — installed in the Arch live system:
+
+| Group | Key packages |
+|---|---|
+| Base | base, linux, linux-firmware, intel-ucode, amd-ucode |
+| Initramfs | mkinitcpio, **mkinitcpio-archiso**, archlinux-keyring |
+| Install/boot | grub, efibootmgr, mtools, os-prober, syslinux, arch-install-scripts, parted, gptfdisk, dosfstools, e2fsprogs, exfatprogs, ntfs-3g |
+| GPU | mesa, vulkan-icd-loader, vulkan-radeon, vulkan-intel |
+| Audio hw | sof-firmware, alsa-firmware, alsa-ucm-conf, alsa-utils |
+| Desktop | hyprland, greetd, xorg-xwayland, waybar, mako, hyprlock, hypridle, hyprpicker, rofi, rofi-emoji, kitty, foot |
+| Audio | pipewire, pipewire-alsa, pipewire-pulse, **pipewire-audio**, wireplumber, gst-plugin-pipewire, pavucontrol, playerctl |
+| Network | networkmanager, iw, wireless-regdb, bluez, bluez-utils, openssh |
+| Power | zram-generator, tlp |
+| Gaming/maint | gamescope, gamemode, mangohud, earlyoom, fwupd, flatpak |
+| KDE | dolphin, kio-extras, ark, ffmpegthumbs, kimageformats, breeze-icons, kde-cli-tools, qt6-multimedia |
+| Qt/portal | qt5-wayland, qt6-wayland, qt5ct, qt6ct, kvantum, kvantum-theme-materia, xdg-desktop-portal{,-hyprland,-gtk}, xdg-user-dirs, xdg-utils, polkit, polkit-gnome, gnome-keyring, libsecret |
+| Shell/apps | zsh, zsh-autosuggestions, zsh-syntax-highlighting, zsh-completions, starship, neovim, vim, nano, cava, ranger, fastfetch, btop, htop, imv, mpv, zathura, zathura-pdf-mupdf |
+| Dev | git, curl, wget, python, ripgrep, fd, fzf, jq, tree-sitter |
+| Brave deps | gtk3, libxss, nss, alsa-lib, ttf-dejavu |
+| Fonts | ttf-jetbrains-mono, ttf-jetbrains-mono-nerd, ttf-nerd-fonts-symbols, otf-font-awesome, noto-fonts, noto-fonts-emoji, terminus-font |
+| Theme | papirus-icon-theme, adwaita-icon-theme, gnome-themes-extra |
+| Wayland tools | cliphist, wl-clipboard, grim, slurp |
+| Utils | udisks2, procps-ng, psmisc, util-linux, rsync, pv, less, man-db, man-pages, bash-completion, zip, unzip, 7zip |
+
+**`archiso/airootfs/usr/local/share/axyl/packages.target`** is the list `axyl-install` actually pacstraps. It is *not* identical to `packages.x86_64`: it targets an installed system (adds `sudo`, drops live-only tooling, adds `grub`, `xdg-desktop-portal-hyprland`, `chrony`/`zramen` on Artix). Keep both lists in sync whenever a runtime dependency changes.
+
+`artixiso/packages.x86_64` differs from the Arch list by: `artix-keyring` instead of `archlinux-keyring`; every daemon paired with its `-runit` package (`dbus-runit`, `elogind-runit`, `networkmanager-runit`, `greetd-runit`, `bluez-runit`, `earlyoom-runit`, `chrony-runit`, `zramen-runit`); `elogind` (provides `loginctl`), `runit`, `device-mapper`, `udev`, `openssl`; `chrony` instead of systemd-timesyncd; `zramen` instead of zram-generator; `greetd`/`greetd-runit`; **no** `mkinitcpio-archiso` and **no** `arch-install-scripts` (their payloads ship in `artixiso/airootfs`).
+
+### Gaming, firmware, microphones
+
+- `axyl-game` wraps a command with `gamemoderun` and `MANGOHUD=1`; `--gamescope` runs it in a nested gamescope window sized by `AXYL_GAME_WIDTH/HEIGHT/REFRESH` (default 1920x1080@60). It ships **once** in `archiso/airootfs/usr/local/bin/` and is inherited by the Artix overlay — do not duplicate it there.
+- `skel/.config/MangoHud/MangoHud.conf` and `skel/.config/pipewire/pipewire.conf.d/99-axyl-echo-cancel.conf` arrive through `/etc/skel`; no extra package is needed for echo cancellation (`pipewire-audio` pulls in `webrtc-audio-processing`).
+- Early OOM: `earlyoom.service` on Arch, `earlyoom` runit service on Artix. `fwupd-refresh.timer` is Arch-only; fwupd on Artix is D-Bus activated, so firmware metadata refresh is manual.
+- No 32-bit/multilib gaming stack is shipped; `archiso/pacman.conf` still lists `[multilib]` for the build host only.
+
+---
+
+## Artix Variant
+
+### Docker build host (`docker/Dockerfile.artix`)
+
+`artixlinux/artixlinux:base-runit`, curated mirrorlist, then `archiso`, `arch-install-scripts`, `dosfstools`, `e2fsprogs`, `libisoburn`, `mtools`, `squashfs-tools`, `syslinux`, `grub`, `mkinitcpio`, `git`.
+
+The Arch `[extra]` repo is appended to the container's `pacman.conf` with `SigLevel = Never`. The section **must** be named `[extra]` — pacman fetches `<section>.db`, so a custom name requests a non-existent `.db` and 404s. `grub` is mandatory on the build host for `uefi-x64.grub.esp`.
+
+### Repo structure (`artixiso/pacman.conf`)
+
+`[system]`, `[world]`, `[galaxy]` via `Include = /etc/pacman.d/mirrorlist`, plus Arch `[extra]` from `geo.mirror.pkgbuild.com` with `SigLevel = Never`. `[artix]` is an internal, unmirrored repo and is never used. Artix packages remain signature-verified; `Never` applies only to the build-only `[extra]`.
+
+### Initramfs preset bypass
+
+Artix's `mkinitcpio` (from `[world]`) generates a `Configuration: archiso` INI section header in the merged temp file when `mkinitcpio-archiso`'s drop-in is present, then tries to source it as bash:
 
 ```
 /tmp/mkinitcpio.XXXXXX: line 5: Configuration: command not found
 ==> ERROR: Failed to read configuration
 ```
 
-This fails as a pacman hook (step 15/25 of the package install phase). mkarchiso continues but no `initramfs-linux.img` is created.
-
-**Fix:** In `customize_airootfs.sh`, call mkinitcpio directly with explicit flags — no preset, no drop-in:
+The authoritative initramfs is therefore rebuilt explicitly in `customize_airootfs.sh` (and by `axyl-install` for the target):
 
 ```bash
-mkinitcpio \
-    -c /etc/mkinitcpio.conf \
-    -k /boot/vmlinuz-linux \
-    -g /boot/initramfs-linux.img
+mkinitcpio -c /etc/mkinitcpio.conf -k /boot/vmlinuz-linux -g /boot/initramfs-linux.img
 ```
 
-This runs AFTER package installation (inside `customize_airootfs.sh`) and produces the initramfs that mkarchiso copies into the ISO. The step-15 failure is permanent and expected — the `customize_airootfs.sh` rebuild is the authoritative initramfs.
+No preset, no drop-in. A failure at pacman hook step 15/25 is expected and harmless.
 
-### Power Commands — loginctl, not systemctl
+### Power commands — `loginctl` / `sv`, not `systemctl`
 
-Artix does not install `systemd`. Any script calling `systemctl reboot`, `systemctl poweroff`, or `systemctl suspend` will fail with `command not found`. Use `loginctl` instead (provided by `elogind`):
+Artix has no systemd. Rules:
 
-| Old (Arch) | New (Artix) |
-|---|---|
-| `systemctl reboot` | `loginctl reboot` |
-| `systemctl poweroff` | `loginctl poweroff` |
-| `systemctl suspend` | `loginctl suspend` |
-| `systemctl enable svc` | `ln -sf /etc/runit/sv/svc /etc/runit/runsvdir/default/` |
+- `systemctl reboot|poweroff|suspend` → `loginctl ...` (elogind)
+- `systemctl enable|disable` → `ln -sf /etc/runit/sv/<svc> /etc/runit/runsvdir/default/` / `rm -f` + `sv down`
+- `systemctl is-active` → `sv status <svc>`
 
-Every `archiso/airootfs/usr/local/bin/` script that calls `systemctl` MUST have an override in `artixiso/airootfs/usr/local/bin/`. Currently: `axyl-powermenu`, `axyl-setup`.
+Scripts must branch at runtime rather than assume one init: `rofi/services.sh`, `axyl-setup`, `start-audio.sh`, and `axyl-install` all test for `/run/systemd/system`. Because of that runtime branching, `artixiso/airootfs/usr/local/bin/{axyl-install,axyl-setup,start-hyprland-session,brave-wayland}` are currently **byte-identical copies** of the `archiso` versions — redundant, but harmless (the overlay is what wins).
 
-### Artix Build Commands
+### Services shipped by the overlay
 
-```bash
-# Full build (Docker, no sudo needed)
-./build.sh artix
+| Service | Source | Notes |
+|---|---|---|
+| `axyl-tune` | overlay `run` | applies `99-zram.conf` once, then `fstrim -av` at boot and weekly; loops forever so runsv does not restart it |
+| `tlp` | overlay `run`/`finish` | `tlp start` then `exec pause`; `finish` runs `tlp stop` |
+| `zramen` | `zramen-runit` + overlay `conf` | 50 % of RAM, capped at 4096 MB, zstd, priority 100 |
+| `chrony` | `chrony-runit` | live clock sync (Arch uses systemd-timesyncd) |
+| `earlyoom` | `earlyoom-runit` | OOM protection |
+| `dbus`, `NetworkManager`, `greetd`, `bluetoothd`, `agetty-tty2` | `*-runit` packages | enabled by symlink |
 
-# Docker image is always rebuilt — no cache reuse
+### Live Artix UEFI GRUB rules
 
-# Test BIOS boot in QEMU
-qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G -boot d
-
-# Test UEFI boot in QEMU (requires edk2-ovmf on build host)
-qemu-system-x86_64 -cdrom ./axyl-out/axyl-*.iso -m 2G \
-  -bios /usr/share/ovmf/x64/OVMF.fd
-```
+- Microcode initrds are **not** in the `x86_64` subdirectory:
+  `initrd /%INSTALL_DIR%/boot/intel-ucode.img /%INSTALL_DIR%/boot/amd-ucode.img /%INSTALL_DIR%/boot/x86_64/initramfs-linux.img`
+- `loadfont unicode` must run **before** `terminal_output gfxterm`, otherwise box-drawing borders render as `?`.
+- `uefi.systemd-boot` MUST NOT be used on Artix (`install: cannot stat '.../systemd-bootx64.efi'`).
 
 ---
 
-## Known Pitfalls
+## Installer (`axyl-install`)
 
-These caused real build or boot failures. Check here before debugging.
-
-### Hook errors (mkinitcpio)
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `Hook 'archiso' cannot be found` | `archiso` (build tool) in packages.x86_64 instead of `mkinitcpio-archiso` (hook provider) | Replace `archiso` with `mkinitcpio-archiso` in packages.x86_64 |
-| `Hook 'archiso_shutdown' cannot be found` | Hook removed from current mkinitcpio-archiso | Remove `archiso_shutdown` from HOOKS |
-| `Hook 'archiso_kms' is deprecated` | Old hook name | Replace `archiso_kms` with `kms` in HOOKS |
-
-### Black screen on boot
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Black screen, no cursor | greetd shows nothing | Check greetd/config.toml — must use `[initial_session]` for autologin, not `[default_session]` |
-| Black screen, mouse cursor moves, no bar or keybindings | bspwmrc not executing | Execute bit missing on bspwmrc; `chmod +x` in start-bspwm-session is the safety net |
-| Black screen after wallpaper expected | feh can't find wallpaper | File extension mismatch — bspwmrc must reference `wallpaper.jpg` not `wallpaper.png` |
-| Polybar not starting — `launch.sh: permission denied` | `useradd -m` does not reliably preserve execute bits when copying from `/etc/skel/`, even when `file_permissions` sets the skel file to 755 | Add `chmod +x ~/.config/polybar/launch.sh` in bspwmrc immediately before calling it |
-| Bar-background-colored strip where polybar should be | polybar running but invisible | Polybar background matches desktop; check font/module init |
-
-### Polybar
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Polybar not starting | PipeWire race condition | bspwmrc starts pipewire/wireplumber/pipewire-pulse, then waits for `pactl info` to succeed before launching polybar |
-| Polybar not starting | Empty ramp-volume values | Font Awesome icons must be raw UTF-8 bytes in config.ini — write via script, not text editor that may strip PUA chars |
-| `UTF-8 with BOM` fatal error on start | config.ini has UTF-8 BOM | Strip BOM: `$b=[System.IO.File]::ReadAllBytes($f); [System.IO.File]::WriteAllBytes($f,$b[3..($b.Length-1)])` |
-| Icons not rendering | Wrong font or missing font fallback | rofi config.rasi sets `font: "JetBrains Mono 11"` so Pango falls back to FA6 for PUA chars |
-
-### Shell / terminal
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `bash: [[: command not found` | `[[` is a bash keyword, fails in POSIX mode | Use POSIX `case $- in *i*)` in .bashrc; use `[ -f ... ]` in .bash_profile |
-| `command not found: export` on line 1 of .zshrc | UTF-8 BOM prepended — zsh sees BOM+`export` as unknown command | Strip BOM from .zshrc (and any dotfile written by PowerShell); use `[System.Text.UTF8Encoding]::new($false)` for all writes |
-| No keybindings after login | sxhkd not started | bspwmrc not running (execute bit missing) |
-| Oh My Zsh not found at login | .oh-my-zsh not in /home/axyl/ | Git clone must happen BEFORE useradd -m in customize_airootfs.sh |
-
-### Artix build errors
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `Configuration: command not found` during pacman hook (step 15/25) | Artix's mkinitcpio (from `[world]`) generates `Configuration: archiso` INI section header in merged temp file; bash can't source it | In `customize_airootfs.sh`, rebuild initramfs with `mkinitcpio -c /etc/mkinitcpio.conf -k /boot/vmlinuz-linux -g /boot/initramfs-linux.img` — bypasses preset and drop-in entirely |
-| `install: cannot stat '.../systemd-bootx64.efi': No such file or directory` | `uefi.systemd-boot` bootmode requires systemd; Artix doesn't have it | Set `bootmodes=('bios.syslinux' 'uefi-x64.grub.esp')` in `artixiso/profiledef.sh`; add `grub` to `Dockerfile.artix` |
-| `useradd: group 'storage' does not exist` | Artix `esysusers` hooks don't run inside mkarchiso chroot | Add `groupadd -f` loop for wheel/audio/video/input/storage/optical/network before `useradd` |
-| `KERNEL PANIC! VFS: Unable to mount root fs on unknown-block(0,0)` | `isofs` module absent from initramfs; archiso hook finds CD-ROM but can't mount ISO 9660 | Add `isofs` to `MODULES=` in `artixiso/airootfs/etc/mkinitcpio.conf` |
-| GRUB borders rendered as `?` | `terminal_output gfxterm` set before loading unicode font | Wrap gfxmode/gfxterm in `if loadfont unicode; then` block |
-| GRUB error: `file /arch/boot/x86_64/intel-ucode.img not found` | Microcode images are NOT in the `x86_64` subdirectory | Use `/%INSTALL_DIR%/boot/intel-ucode.img` (no `x86_64`); only vmlinuz and initramfs use the `x86_64/` subdir |
-| `systemctl: command not found` in running Artix system | Artix has no systemd | Use `loginctl reboot/poweroff/suspend` instead; enable services with `ln -s /etc/runit/sv/<svc> /etc/runit/runsvdir/default/` |
-| Service not starting on boot in installed Artix system | runit service symlink missing | Each daemon needs its `-runit` companion package AND a symlink in `/etc/runit/runsvdir/default/` |
-
-### Font Awesome icons
-
-Font Awesome 6 uses the Unicode Private Use Area (U+E000–U+F8FF). These characters must be written as raw UTF-8 bytes into config files. Pasting them in a text editor on Windows may silently strip or corrupt them. Always verify with:
+One script for both variants; it reads `/etc/axyl/variant` to pick the OS label, runit symlinks, and initramfs command.
 
 ```bash
-grep -cP "[\x80-\xFF]" skel/.config/polybar/config.ini
+sudo axyl-install                                   # interactive, requires typing ERASE
+sudo axyl-install --auto --disk /dev/sda --yes --password '...'   # unattended
 ```
 
-Expected: non-zero. If zero, icons are missing and must be re-written programmatically.
+Options: `--auto`, `--disk`, `--password`/`AXYL_PASSWORD`, `--yes`, `--allow-usb`, `--user`, `--hostname`, `--timezone` (defaults `axyl`/`axyl`/`Asia/Manila`).
 
-Key codepoints (FA6 Free Solid):
+Safety rules that must not be relaxed:
 
-| Icon | Codepoint | Used in |
-|---|---|---|
-| fa-microchip | U+F2DB | polybar cpu module prefix |
-| fa-memory | U+F538 | polybar memory module prefix |
-| fa-volume-off | U+F026 | ramp-volume-0, label-muted |
-| fa-volume-low | U+F027 | ramp-volume-1 |
-| fa-volume-high | U+F028 | ramp-volume-2 |
-| fa-wifi | U+F1EB | network-wireless label |
-| fa-network-wired | U+F796 | network-wired label |
-| fa-clock | U+F017 | date module prefix |
-| fa-right-from-bracket | U+F2F5 | powermenu logout |
-| fa-arrows-rotate | U+F021 | powermenu reboot |
-| fa-power-off | U+F011 | powermenu shutdown |
-| fa-moon | U+F186 | powermenu sleep |
+- refuses non-block devices and non-whole disks
+- refuses the live/root disk (checks `/run/archiso/bootmnt`, `/run/archiso/img_dev`, and `/`)
+- refuses USB targets unless `--allow-usb`
+- refuses disks below 8 GiB and disks with mounted partitions
+- `--auto` additionally requires `--yes`
+
+Layout: GPT, 512 MiB EFI (`ef00`) for UEFI or 1 MiB BIOS boot (`ef02`), remainder ext4 labelled `AXYL`; root mounted at `/mnt`, ESP at `/mnt/boot`.
+
+Steps: `pacstrap -K` the variant's `/usr/local/share/axyl/packages.target` (retry without `-K` on keyring failure) → `genfstab -U` → `noatime` on `/`, `fmask=0077,dmask=0077` on `/boot` → copy `/etc/skel`, `start-hyprland-session`, `brave-wayland`, `axyl-setup`, `axyl-game`, the vendored Brave package, os-release/variant/mirrorlist/hook/locale → rewrite `mkinitcpio.conf` (`MODULES=(virtio_blk virtio_pci virtio_net virtio_gpu)`, add `microcode` hook) → drop `resolve` from `nsswitch.conf` → copy TLP/zram/sysctl config and (Artix) the `tlp`/`axyl-tune`/`zramen` service dirs → write greeter-only `greetd/config.toml` and `/etc/default/grub` (`GRUB_TIMEOUT=2`, `quiet zswap.enabled=0`) → create groups/user, lock root, enable `wheel` sudo, timezone, locale, `xdg-user-dirs-update`, regenerate the user's theme files → install Brave into the target → enable services → `mkinitcpio -P` (Arch) or explicit `mkinitcpio -c/-k/-g` (Artix) → `grub-install` + `grub-mkconfig` → unmount.
+
+The installer is copy-based: it does **not** reinstall the live ISO and does not touch the live root. It also does not keep passwordless sudo for the target user.
+
+`axyl-setup` (`sudo axyl-setup`) re-applies the installed-system half of that work on an existing install: greeter-only greetd config, service enablement for the detected init, xdg dirs, theme render.
+
+---
+
+## Build, Flash, Test Commands
+
+```bash
+# Build (Docker, no root needed)
+./build.sh arch
+./build.sh artix
+
+# Flash to USB (lists USB devices only, verifies .sha256, requires typing FLASH)
+sudo ./flash.sh
+sudo ./flash.sh axyl-out/arch/axyl-arch-*.iso
+
+# QEMU harness
+./test.sh                     # menu of built ISOs
+./test.sh arch                # newest arch ISO, BIOS, persistent disk
+./test.sh artix --uefi        # OVMF with per-VM NVRAM
+./test.sh arch --snapshot     # discard disk writes
+./test.sh arch --boot disk    # boot the installed system, no ISO
+./test.sh arch --share ~/Pictures
+./test.sh arch --headless --gl --verify --dry-run
+```
+
+`test.sh` keeps disks and QMP sockets in `~/axyl-qemu/`; `--headless` drives the VM through QMP (`python3 ~/axyl-qemu/qmp.py <sock> shot out.ppm`). Hyprland needs a DRM/EGL-capable virtual GPU: prefer `-device virtio-vga-gl -display gtk,gl=on`.
+
+Raw QEMU equivalents are documented in `README.md`.
 
 ---
 
@@ -660,8 +624,118 @@ Key codepoints (FA6 Free Solid):
 
 | Account | Password | Notes |
 |---|---|---|
-| axyl | axyl | Default user, passwordless sudo, shell = /bin/zsh |
-| root | toor | Root account |
+| `axyl` | `axyl` | Default user, passwordless sudo (live only), shell `/bin/zsh` |
+| `root` | `toor` | Root account |
+
+Live timezone `Asia/Manila`, hostname `axyl`, clock synced by systemd-timesyncd (Arch) or chrony (Artix). Installed systems get a chosen timezone and a greeter instead of autologin.
+
+---
+
+## Known Pitfalls
+
+### Hyprland / Wayland
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Edits to `~/.config/hypr/*.conf` do nothing | Hyprland loads `hyprland.lua` when present (≥ 0.55) | Edit `conf/*.lua`; there is no `hyprland.conf` |
+| Colours revert after re-login | `palette.lua`, `style.css`, `mako/config`, `hyprlock.conf`, GTK/KDE files are generated | Change `theme/palette.json`, then run `render.py` |
+| Theme picker has no effect | `themes.py set` writes `palette.json` + `cli.json` then re-renders; a render failure restores the old palette | Check `~/.config/opencode/cli.json` and stderr |
+| `hyprctl keyword ...` returns "unknown request" | Lua config on Hyprland 0.5x | Use `hyprctl eval "hl.config({...})"` |
+| Black screen / no cursor in QEMU | no usable hardware cursor or no EGL render node | `start-hyprland-session` sets `WLR_NO_HARDWARE_CURSORS=1`; pass `-device virtio-vga-gl -display gtk,gl=on`; only VMs without `/dev/dri/renderD128` fall back to `WLR_RENDERER=pixman` |
+| Waybar battery pill missing | `waybar-battery` prints empty text for an absent pack and Waybar hides empty custom modules | Expected on single-battery machines; `BAT1` reappears on hotplug |
+| No clipboard history | `wl-paste --watch cliphist store` not running | It is in `conf/autostart.lua`; restart the session or run it manually |
+| Screenshots fail | `grim`/`slurp`/`jq`/`wl-clipboard` missing, or not on Wayland | Keep those packages; `screenshot window` needs `hyprctl` + `jq` |
+| Audio silent on Arch | PipeWire started manually instead of via systemd user units | Use `~/.local/bin/start-audio.sh`; it prefers `systemctl --user` and only falls back to manual daemons |
+| Audio silent on Artix | no systemd user manager | `start-audio.sh` starts `pipewire`, `wireplumber`, `pipewire-pulse` directly and waits for the socket |
+| Locked screen ignores volume/brightness | binds missing `locked = true` | Keep it on media/volume/brightness binds |
+| Qt apps look unthemed | `QT_QPA_PLATFORMTHEME`/`QT_STYLE_OVERRIDE` unset | Session sets `qt6ct` + `kvantum`; `~/.config/environment.d/qt-theme.conf` mirrors it |
+
+### Build system
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Overlay files are `0644` in the live system | `profiledef.sh` used `declare -A file_permissions` | Use a plain `file_permissions=( ... )` assignment |
+| `Hook 'archiso' cannot be found` | `archiso` in `packages.x86_64` instead of `mkinitcpio-archiso` | Use `mkinitcpio-archiso` (Arch variant) |
+| `Hook 'archiso_shutdown' cannot be found` | hook removed upstream | Remove it from `HOOKS` |
+| `Hook 'archiso_kms' is deprecated` | old hook name | Use `kms` |
+| `install: cannot stat '.../systemd-bootx64.efi'` | `uefi.systemd-boot` on Artix | `artixiso/profiledef.sh` must use `uefi-x64.grub.esp`; `grub` must be in `docker/Dockerfile.artix` |
+| `pacman -U brave-bin` fails with `CheckSpace` | no mount table for `/` inside the mkarchiso chroot | Both `customize_airootfs.sh` and `axyl-install` retry with only `CheckSpace` commented out |
+| Build picks up stale config | builder image is always removed and rebuilt; profile is a fresh `mktemp -d` | If something still looks stale, check `axyl-build/pkgs/` for an old `brave-bin` package |
+| ISO name/label mismatch | `iso_label` uses `%y.%m`; `install_dir` is `arch` on both variants | Do not change `install_dir` without updating syslinux, GRUB, systemd-boot, and `profiledef.sh` |
+
+### Artix build errors
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Configuration: command not found` in a pacman hook (15/25) | Artix `mkinitcpio` + Arch-format drop-in | Rebuild with explicit `mkinitcpio -c/-k/-g` in `customize_airootfs.sh`; the hook failure is expected |
+| `useradd: group 'storage' does not exist` | `esysusers` hooks do not run in the mkarchiso chroot | `groupadd -f` the full group list before `useradd` |
+| `KERNEL PANIC! VFS: Unable to mount root fs` | `isofs` absent from the initramfs | Add `isofs` to `MODULES=` in `artixiso/etc/mkinitcpio.conf` |
+| GRUB borders render as `?` | `terminal_output gfxterm` before `loadfont unicode` | Load the font first inside `if loadfont unicode; then` |
+| GRUB `file .../boot/x86_64/intel-ucode.img not found` | microcode images live in `boot/`, not `boot/x86_64/` | Fix the initrd paths |
+| `systemctl: command not found` | no systemd on Artix | Branch on `/run/systemd/system`, or use `loginctl`/`sv` |
+| Two supervisors for one daemon | enabling both `logind` and `elogind` | `elogind-runit` already enables `logind`; never add `elogind` |
+| `ttys 1,3,4,5,6` still prompt | runit gettys not removed | Remove the `agetty-tty*` symlinks; keep only `agetty-tty2` |
+| Wi-Fi/Bluetooth toggle does nothing on Artix | `rofi/services.sh` used systemd commands | It detects runit and uses `sv`/`runsvdir`; verify the `-runit` package is installed |
+
+### Shell / dotfiles
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `command not found: export` on line 1 of `.zshrc` | UTF-8 BOM prepended by a Windows editor | Strip the BOM; write without BOM |
+| Script does not execute at all | BOM before `#!` hides the shebang | Same fix; verify the first three bytes are not `EF BB BF` |
+| `nvim` tries to download plugins at login | lazy bootstrap cannot fetch | The plugin tree is vendored in `skel/.local/share/nvim/lazy`; keep `lazy-bootstrap.lua` offline-safe |
+| Nerd Font glyphs show as boxes | font missing or wrong family | Keep `ttf-jetbrains-mono-nerd` + `ttf-nerd-fonts-symbols`; Waybar uses `JetBrainsMono Nerd Font` |
+| `.bash_profile` breaks in a POSIX shell | bash-only syntax | Keep `.bash_profile` POSIX (`[ ]`, no `[[ ]]`); `.bashrc` itself may use bash syntax |
+
+### Fonts and special characters
+
+Nerd Font glyphs live in the Unicode Private Use Area and emoji live outside the BMP. Pasting them through a Windows editor can silently drop or corrupt them, so prefer escapes where the format allows one:
+
+- `skel/.config/waybar/config` stores module icons as raw UTF-8 bytes (workspaces, CPU, volume, network, battery).
+- `skel/.config/rofi/powermenu.sh` uses `printf '\uf023'`-style escapes instead of raw bytes — both approaches are valid; do not "normalise" one into the other.
+
+Verify the raw-byte file still contains multibyte characters:
+
+```bash
+grep -cP "[\x80-\xFF]" skel/.config/waybar/config
+```
+
+Expected: non-zero.
+
+---
+
+## Coding Rules
+
+- Shell scripts: `#!/usr/bin/env bash` and `set -euo pipefail`. POSIX helpers under `skel/.local/bin` may use `#!/bin/sh` (e.g. `screenshot`, `waybar-battery`).
+- `.bash_profile` must stay POSIX. `.bashrc` is bash-only and may use `[[ ]]`.
+- No comments unless the WHY is non-obvious. Never add placeholder or stub code.
+- Keep configs minimal: do not add packages or features that were not requested.
+- **Never hand-edit generated files.** A file with a `GENERATED by ~/.config/theme/render.py` header is overwritten on every login, by `themes.py`, and by the installer.
+- Colour changes go into `~/.config/theme/palette.json`; structural/template changes go into `render.py`.
+- `profiledef.sh` uses plain array assignment for `file_permissions` (see above).
+- Every new executable must be added to **both** variants' `file_permissions`, to the matching `chmod` loop in `customize_airootfs.sh`, and — if it lives in `/usr/local/bin` — copied by `axyl-install`.
+- Scripts that run on both variants must branch on `/run/systemd/system` (or use `loginctl`); `systemctl` may never be called unconditionally.
+- PowerShell writes must never include a BOM:
+  ```powershell
+  $utf8 = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllText($path, $content, $utf8)
+  ```
+
+---
+
+## Dependency Management
+
+**Never assume a dependency is available. Verify it.**
+
+For every new feature:
+
+1. Identify every binary, library, service, and config file it references.
+2. Trace each to its Arch package **and** its Artix equivalent (`-runit` companion for daemons).
+3. Add it to `packages.x86_64` (live) and, if the installed system needs it, to `packages.target`.
+4. Update the Artix lists where the package differs (`zramen`, `chrony`, `elogind`, runit pairs).
+5. Check nothing conflicts (e.g. `pipewire` vs `pulseaudio`, `polkit-gnome` vs `hyprpolkitagent`).
+
+Examples already enforced: `screenshot` needs `grim slurp jq wl-clipboard libnotify`; `keybinds.sh` needs `python` + `rofi`; `battery-guard` needs `python`; `wpctl` needs `wireplumber`; `pactl` needs `pipewire-pulse`; `cliphist` needs `wl-clipboard`; theme engine needs `python`; Brave needs `gtk3 libxss nss alsa-lib ttf-dejavu`.
 
 ---
 
@@ -676,53 +750,23 @@ Key codepoints (FA6 Free Solid):
 
 ---
 
-## Dependency Management
-
-**Never assume a dependency is available. Verify it.**
-
-For every new feature:
-1. Identify every binary, library, or config the feature references.
-2. Trace each to its Arch package name.
-3. Add missing packages to `packages.x86_64`.
-4. Verify no circular or conflicting packages are introduced.
-
-After adding any config, hook, or script, audit its runtime dependencies before closing the task.
-
----
-
-## Coding Rules
-
-- Shell scripts: `#!/usr/bin/env bash` and `set -euo pipefail`.
-- `.bashrc` and `.bash_profile`: use only POSIX constructs (`case`, `[ ]`). Never `[[ ]]` — these files may be sourced in a POSIX-mode shell.
-- No comments unless the WHY is non-obvious.
-- No placeholder or stub code — every added line must be functional.
-- Keep configs minimal: do not add packages or features not explicitly requested.
-- Font Awesome icons in text configs must be written as raw UTF-8 bytes (use PowerShell `[char]0xXXXX` or equivalent, not a text editor).
-- **PowerShell file writes must NEVER include BOM.** `[System.Text.Encoding]::UTF8` and `[System.IO.File]::WriteAllText` with default encoding both write a UTF-8 BOM. Always use `[System.Text.UTF8Encoding]::new($false)` explicitly:
-  ```powershell
-  $utf8 = [System.Text.UTF8Encoding]::new($false)
-  [System.IO.File]::WriteAllText($path, $content, $utf8)
-  ```
-  BOM causes: polybar `UTF-8 with BOM` fatal error; zsh `command not found: export` on line 1; bash scripts fail to exec (kernel misses `#!` shebang). Always verify with `ReadAllBytes` — first 3 bytes must NOT be `EF BB BF`.
-
----
-
 ## File Structure Checks
 
 Run mentally after every edit session:
 
-- Every binary referenced in `skel/**` has a corresponding package in `packages.x86_64`.
-- Every script in `airootfs/usr/local/bin/` has an entry in `file_permissions` at 0:0:755.
-- `bspwmrc` and `launch.sh` have entries in `file_permissions` at 0:0:755.
-- `mkinitcpio.conf` HOOKS contain no deprecated or removed hook names.
-- **Arch variant:** `profiledef.sh` bootmodes use `uefi.systemd-boot` for UEFI.
-- **Artix variant:** `artixiso/profiledef.sh` bootmodes use `uefi-x64.grub.esp`; `artixiso/grub/grub.cfg` exists; ucode initrd paths use `/%INSTALL_DIR%/boot/intel-ucode.img` (NO `x86_64` subdir).
-- `greetd/config.toml` has `[initial_session]` for autologin.
-- Any new wallpaper image: extension in `bspwmrc` feh call matches the actual file extension.
-- **Artix variant:** Any script in `archiso/airootfs/usr/local/bin/` that calls `systemctl` MUST have an override in `artixiso/airootfs/usr/local/bin/` that uses `loginctl` instead. Currently overridden: `axyl-powermenu`, `axyl-setup`.
-- **Artix variant:** Every daemon enabled in `customize_airootfs.sh` must have both a base package AND a `-runit` companion package in `artixiso/packages.x86_64`.
-- `axyl-game` exists in both `archiso` and `artixiso` overlays, is executable, and is copied by both `axyl-install` variants.
-- Both `packages.x86_64` and `packages.target` contain the same gaming/maintenance block (`earlyoom-runit` only on Artix).
+- Every binary referenced in `skel/**`, `airootfs/usr/local/bin/**`, and `airootfs/etc/runit/sv/**` has a package in the matching `packages.x86_64` (and `packages.target` if installed systems use it).
+- Every script under `airootfs/usr/local/bin/`, `skel/.local/bin/`, `skel/.config/rofi/*.sh`, `skel/.config/theme/*.py`, and the Artix runit services appears in that variant's `file_permissions` at `0:0:755`.
+- `profiledef.sh` uses a plain `file_permissions=( ... )` assignment.
+- `mkinitcpio.conf` HOOKS contain no removed/deprecated hook names; Artix includes `isofs`.
+- Arch live UEFI uses `uefi.systemd-boot`; Artix live UEFI uses `uefi-x64.grub.esp` and `artixiso/grub/grub.cfg` exists with `/%INSTALL_DIR%/boot/intel-ucode.img` (no `x86_64` subdir).
+- `greetd/config.toml` keeps `[initial_session]` in **both** live overlays; the installer-written target config must not have it.
+- `/etc/axyl/variant` says `arch` in `archiso/`, `artix` in `artixiso/`.
+- Generated files still carry their GENERATED header; no hand edits accumulate.
+- Every daemon enabled in `customize_airootfs.sh` has a base package **and** a `-runit` companion in `artixiso/packages.x86_64`.
+- No script calls `systemctl` unconditionally; Artix paths use `loginctl`/`sv` or runtime detection.
+- `axyl-game` exists once (in `archiso/`) and is listed in both `file_permissions` files, both `chmod` loops, and both `packages.target` blocks.
+- The gaming/maintenance block stays in sync between `packages.x86_64` and `packages.target` (`earlyoom-runit` only on Artix).
+- Vendored `skel/.local/share/nvim/lazy` is intact; `lazy-lock.json` matches it.
 
 ---
 
@@ -730,10 +774,19 @@ Run mentally after every edit session:
 
 ```
 [ ] Write TODOs before starting
-[ ] Read the codebase and identify files that are no longer needed; delete them
-[ ] Identify all new dependencies; add to packages.x86_64
+[ ] Read the codebase and identify files that are no longer needed; confirm before deleting
+[ ] Identify all new dependencies (Arch + Artix); add to packages.x86_64 / packages.target
 [ ] Edit or create the relevant files
 [ ] Verify file structure is still consistent
 [ ] Update README.md — always; every task that changes behaviour, commands, files, or defaults must be reflected in README.md
+[ ] Update CLAUDE.md when architecture, paths, packages, or pitfalls change
 [ ] Mark all TODOs complete (or annotate blockers)
 ```
+
+---
+
+## Known Inconsistencies (fix when touched)
+
+- `artixiso/airootfs/usr/local/bin/{axyl-install,axyl-setup,start-hyprland-session,brave-wayland}` are byte-identical to the `archiso` originals; the overlay copies are redundant.
+- `README.md` still says `mkinitcpio-archiso` and `arch-install-scripts` come from Arch `[extra]` during the Artix build. In practice both payloads ship in `artixiso/airootfs` and neither package is in `artixiso/packages.x86_64`.
+- `artixiso/pacman.conf` keeps the Arch `[extra]` section although the Artix live list no longer pulls from it.
