@@ -25,6 +25,14 @@ hl.config({
       clickfinger_behavior = true,
       scroll_factor      = 0.8,
     },
+
+    -- The digitizer reports the panel's native portrait frame (0x0-800x1280),
+    -- so without this Hyprland stretches it over the rotated 1280x800 output
+    -- and every tap lands far from where it was made. The global option also
+    -- covers OLED Decks, whose touch controller has a different name.
+    touchdevice = {
+      transform = 3,
+    },
   },
 })
 
@@ -32,9 +40,8 @@ hl.config({
 -- the applications).
 hl.gesture({ fingers = 4, direction = "horizontal", action = "workspace" })
 
--- Map the touchscreen to the internal panel. The name is Deck-specific; the
--- pcall keeps Hyprland quiet on other hardware.
-pcall(hl.device, { name = "fts3528:00 2808:1015", output = "eDP-1" })
+-- The touchscreen needs no per-device entry: its transform is the input-wide
+-- `touchdevice` option above, which follows the panel rotation set here.
 
 -- The stock Super+W browser bind points at Brave, which the Deck may not have.
 -- hl.bind appends, so the original binds must be removed first.

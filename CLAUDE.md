@@ -203,8 +203,10 @@ so SDDM re-reads the temporary config. It never terminates a Game Mode session
 `steamdeck/config/hypr/conf/device.lua` is loaded last by
 `skel/.config/hypr/hyprland.lua` via `pcall(require, "conf.device")`. It sets the
 Deck monitor (`eDP-1`, `preferred`, `scale 1`, **`transform 3`** — the panel
-reports 800x1280 portrait and the Deck's panel is mounted rotated 180°), touchpad
-tuning, the four-finger workspace gesture, the touchscreen map, and rebinds
+reports 800x1280 portrait and the Deck's panel is mounted rotated 180°), rotates
+the touchscreen with it (`input.touchdevice.transform = 3`; the digitizer reports
+the same native portrait frame), touchpad tuning, the four-finger workspace
+gesture, and rebinds
 `SUPER + W` (Steam Big Picture) and `SUPER + SHIFT + Escape` (return to Game
 Mode). Because `hl.bind` appends, it first removes the stock binds with
 `pcall(hl.unbind, ...)`. It also autostarts `steam -silent` on `hyprland.start`.
@@ -237,6 +239,7 @@ Pitfalls:
 | Symptom | Cause | Fix |
 |---|---|---|
 | Screen upside-down or portrait | panel is mounted rotated; native mode is 800x1280 | `transform = 3` in `device.lua` (2 is upside-down landscape, 1 is wrong here) |
+| Taps land away from the finger | digitizer reports the panel's native 800x1280 frame; without a transform Hyprland stretches it over the rotated output | Keep `input.touchdevice.transform = 3` in `device.lua`; the global option also covers OLED Deck controllers, whose names differ |
 | KDE colours/fonts change after using Hyprland | `render.py` ran in `all` scope | Keep `AXYL_RENDER_SCOPE=hypr` and `~/.config/theme/scope` = `hypr` |
 | Session not listed by SteamOS after install | SDDM has not re-read the session dir | `sudo systemctl restart sddm` or reboot |
 | Switching to Game Mode does nothing | SDDM did not act on the one-shot config | `ensure_switch` ends the desktop session; never kill a Game Mode session |

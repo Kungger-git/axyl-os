@@ -135,6 +135,8 @@ reliable way to type.
 - **Session missing after a SteamOS update:** open **Axyl Deck** → **Setup / Repair**,
   or run `steamdeck/install.sh --repair`.
 - **On-screen keyboard blank:** the layout file is missing; re-run **Setup / Repair**.
+- **Taps land away from your finger:** the touchscreen rotation was lost. Re-run
+  **Setup / Repair**; `device.lua` must keep `input.touchdevice.transform = 3`.
 - **Lock screen:** intentionally disabled. `SUPER + L` explains why; use the power
   button to sleep instead.
 

@@ -138,7 +138,7 @@ button.
 
 | Control | Result |
 |---|---|
-| Trackpads / touchscreen | Pointer and scrolling; the touchscreen is mapped to `eDP-1` |
+| Trackpads / touchscreen | Pointer and tapping; the touchscreen is rotated to match the panel (`touchdevice.transform = 3`) |
 | Touchpad | Tap-to-click, natural scroll, clickfinger |
 | Four-finger horizontal swipe | Previous / next workspace |
 | `SUPER + Return` | Foot terminal |
@@ -170,6 +170,10 @@ session bus from the compositor when invoked outside the session.
 The SteamOS `squeekboard` package ships the binary without layout data, so the
 installer copies a vendored `us.yaml` to
 `~/.local/share/squeekboard/keyboards/us.yaml`. Without it the keyboard is blank.
+
+The `KB` pill in Waybar taps through to `axyl-osk toggle`. Touch input is rotated
+to match the panel, so taps land where you put your finger; the same transform
+also makes every other on-screen target reachable with the touchscreen.
 
 ### Lock screen is disabled
 
