@@ -5,6 +5,7 @@ intel-ucode
 amd-ucode
 mkinitcpio
 archlinux-keyring
+holo-keyring
 sudo
 dbus
 

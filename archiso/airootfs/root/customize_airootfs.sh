@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ── Keyring (must be first) ──────────────────────────────────────────────────
 pacman-key --init
-pacman-key --populate archlinux
+pacman-key --populate archlinux holo
 
 # ── Locale, timezone, hostname ───────────────────────────────────────────────
 sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen

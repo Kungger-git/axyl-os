@@ -300,6 +300,7 @@ copy_payload() {
     install -Dm644 /etc/os-release /mnt/usr/lib/os-release
     install -Dm644 /etc/axyl/variant /mnt/etc/axyl/variant
     install -Dm644 /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+    install -Dm644 /etc/pacman.conf /mnt/etc/pacman.conf
     install -Dm644 /etc/issue /mnt/etc/issue
     install -Dm644 /etc/pacman.d/hooks/99-axyl-os-release.hook \
         /mnt/etc/pacman.d/hooks/99-axyl-os-release.hook
