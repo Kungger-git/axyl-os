@@ -8,6 +8,9 @@ Mode.
 
 This is the `steam-deck` branch only. `master` does not use this directory.
 
+**Visual guide:** [CONTROLS.md](CONTROLS.md) shows what every app button, Waybar
+pill and physical control does, with diagrams.
+
 ---
 
 ## What it does
@@ -129,6 +132,9 @@ not a tiled window.
 ---
 
 ## Deck controls
+
+See [CONTROLS.md](CONTROLS.md) for a diagram of every physical control and app
+button.
 
 | Control | Result |
 |---|---|

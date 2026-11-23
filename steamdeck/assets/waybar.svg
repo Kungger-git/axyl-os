@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="190" viewBox="0 0 1280 190" font-family="Inter, 'Segoe UI', sans-serif">
+  <rect width="1280" height="190" fill="#0a0a0a"/>
+  <text x="20" y="22" fill="#eeeeee" font-size="18" font-weight="700">Waybar on the Deck</text>
+
+  <rect x="20" y="56" width="1240" height="44" rx="8" fill="#141414" stroke="#1e1e1e" stroke-width="1.5"/>
+
+  <!-- workspace -->
+  <rect x="32" y="66" width="34" height="24" rx="6" fill="#fab283"/>
+  <text x="49" y="83" fill="#0a0a0a" font-size="14" font-weight="700" text-anchor="middle">1</text>
+
+  <!-- clock -->
+  <text x="640" y="84" fill="#eeeeee" font-size="15" text-anchor="middle">20:19</text>
+
+  <!-- right modules -->
+  <rect x="820" y="66" width="54" height="24" rx="6" fill="#1e1e1e"/>
+  <text x="847" y="83" fill="#eeeeee" font-size="13" text-anchor="middle">Axyl</text>
+
+  <rect x="882" y="66" width="34" height="24" rx="6" fill="#1e1e1e"/>
+  <text x="899" y="83" fill="#eeeeee" font-size="13" text-anchor="middle">KB</text>
+
+  <rect x="924" y="66" width="62" height="24" rx="6" fill="#1e1e1e"/>
+  <text x="955" y="83" fill="#eeeeee" font-size="13" text-anchor="middle">B 38%</text>
+
+  <rect x="994" y="66" width="62" height="24" rx="6" fill="#1e1e1e"/>
+  <text x="1025" y="83" fill="#eeeeee" font-size="13" text-anchor="middle">V 44%</text>
+
+  <rect x="1064" y="66" width="92" height="24" rx="6" fill="#1e1e1e"/>
+  <text x="1110" y="83" fill="#eeeeee" font-size="13" text-anchor="middle">W kungger</text>
+
+  <rect x="1164" y="66" width="44" height="24" rx="6" fill="#1e1e1e"/>
+  <text x="1186" y="83" fill="#eeeeee" font-size="13" text-anchor="middle">80%</text>
+
+  <circle cx="1229" cy="78" r="11" fill="#1e1e1e" stroke="#3a3a3a"/>
+
+  <!-- badges -->
+  <g fill="#fab283">
+    <circle cx="49" cy="38" r="12"/>
+    <circle cx="640" cy="38" r="12"/>
+    <circle cx="847" cy="38" r="12"/>
+    <circle cx="899" cy="38" r="12"/>
+    <circle cx="955" cy="38" r="12"/>
+    <circle cx="1025" cy="38" r="12"/>
+    <circle cx="1110" cy="38" r="12"/>
+    <circle cx="1186" cy="38" r="12"/>
+    <circle cx="1229" cy="38" r="12"/>
+  </g>
+  <g fill="#0a0a0a" font-size="12" font-weight="700" text-anchor="middle">
+    <text x="49" y="42">1</text>
+    <text x="640" y="42">2</text>
+    <text x="847" y="42">3</text>
+    <text x="899" y="42">4</text>
+    <text x="955" y="42">5</text>
+    <text x="1025" y="42">6</text>
+    <text x="1110" y="42">7</text>
+    <text x="1186" y="42">8</text>
+    <text x="1229" y="42">9</text>
+  </g>
+
+  <text x="20" y="138" fill="#808080" font-size="13">Axyl and KB are buttons. The workspace pill switches workspace. Brightness, volume, network and battery are readouts.</text>
+  <text x="20" y="162" fill="#808080" font-size="13">Tap the Axyl pill to open the app, or the KB pill to show the on-screen keyboard.</text>
+</svg>

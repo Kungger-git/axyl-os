@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" font-family="Inter, 'Segoe UI', sans-serif">
+  <rect width="1400" height="820" fill="#0a0a0a"/>
+  <text x="40" y="56" fill="#eeeeee" font-size="26" font-weight="700">Steam Deck controls</text>
+  <text x="40" y="82" fill="#808080" font-size="15">What each physical control does in the Axyl Hyprland session</text>
+
+  <!-- body -->
+  <rect x="40" y="120" width="880" height="560" rx="70" fill="#141414" stroke="#2a2a2a" stroke-width="2"/>
+  <rect x="52" y="132" width="856" height="536" rx="60" fill="none" stroke="#1e1e1e"/>
+
+  <!-- screen -->
+  <rect x="280" y="190" width="400" height="250" rx="10" fill="#0a0a0a" stroke="#3a3a3a" stroke-width="2"/>
+  <text x="480" y="300" fill="#eeeeee" font-size="20" text-anchor="middle">1280 x 800</text>
+  <text x="480" y="330" fill="#fab283" font-size="15" text-anchor="middle">Axyl Hyprland</text>
+  <text x="480" y="354" fill="#808080" font-size="12" text-anchor="middle">eDP-1 - landscape</text>
+
+  <!-- shoulders / triggers -->
+  <rect x="60" y="78" width="200" height="30" rx="15" fill="#141414" stroke="#3a3a3a" stroke-dasharray="6 4"/>
+  <rect x="660" y="78" width="200" height="30" rx="15" fill="#141414" stroke="#3a3a3a" stroke-dasharray="6 4"/>
+  <rect x="70" y="106" width="180" height="28" rx="14" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <rect x="690" y="106" width="180" height="28" rx="14" fill="#1e1e1e" stroke="#3a3a3a"/>
+
+  <!-- top edge -->
+  <rect x="250" y="104" width="34" height="20" rx="6" fill="#2a2a2a"/>
+  <rect x="292" y="104" width="30" height="20" rx="6" fill="#2a2a2a"/>
+  <rect x="330" y="104" width="30" height="20" rx="6" fill="#2a2a2a"/>
+  <rect x="560" y="104" width="64" height="20" rx="6" fill="#2a2a2a"/>
+  <rect x="632" y="104" width="54" height="20" rx="6" fill="#2a2a2a"/>
+
+  <!-- left stick -->
+  <circle cx="110" cy="260" r="42" fill="#1e1e1e" stroke="#3a3a3a" stroke-width="2"/>
+  <circle cx="110" cy="260" r="30" fill="#2a2a2a"/>
+  <!-- left d-pad -->
+  <rect x="88" y="402" width="44" height="76" rx="8" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <rect x="68" y="422" width="84" height="40" rx="8" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <!-- left trackpad -->
+  <rect x="185" y="280" width="90" height="140" rx="14" fill="#1e1e1e" stroke="#3a3a3a" stroke-width="2"/>
+  <rect x="195" y="290" width="70" height="120" rx="8" fill="#2a2a2a"/>
+
+  <!-- right trackpad -->
+  <rect x="685" y="280" width="90" height="140" rx="14" fill="#1e1e1e" stroke="#3a3a3a" stroke-width="2"/>
+  <rect x="695" y="290" width="70" height="120" rx="8" fill="#2a2a2a"/>
+  <!-- right abxy -->
+  <circle cx="850" cy="220" r="19" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <circle cx="890" cy="260" r="19" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <circle cx="850" cy="300" r="19" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <circle cx="810" cy="260" r="19" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <text x="850" y="225" fill="#eeeeee" font-size="13" text-anchor="middle">Y</text>
+  <text x="890" y="265" fill="#eeeeee" font-size="13" text-anchor="middle">B</text>
+  <text x="850" y="305" fill="#eeeeee" font-size="13" text-anchor="middle">A</text>
+  <text x="810" y="265" fill="#eeeeee" font-size="13" text-anchor="middle">X</text>
+  <!-- right stick -->
+  <circle cx="850" cy="440" r="42" fill="#1e1e1e" stroke="#3a3a3a" stroke-width="2"/>
+  <circle cx="850" cy="440" r="30" fill="#2a2a2a"/>
+
+  <!-- view / menu -->
+  <rect x="203" y="240" width="54" height="20" rx="10" fill="#2a2a2a"/>
+  <rect x="703" y="240" width="54" height="20" rx="10" fill="#2a2a2a"/>
+  <!-- steam / quick access -->
+  <circle cx="230" cy="460" r="17" fill="#2a2a2a" stroke="#3a3a3a"/>
+  <circle cx="730" cy="460" r="17" fill="#2a2a2a" stroke="#3a3a3a"/>
+  <text x="230" y="465" fill="#eeeeee" font-size="11" text-anchor="middle">S</text>
+  <text x="730" y="465" fill="#eeeeee" font-size="11" text-anchor="middle">Q</text>
+
+  <!-- badges -->
+  <g fill="#fab283">
+    <circle cx="660" cy="210" r="13"/><circle cx="180" cy="275" r="13"/><circle cx="685" cy="275" r="13"/>
+    <circle cx="110" cy="206" r="13"/><circle cx="850" cy="500" r="13"/><circle cx="110" cy="388" r="13"/>
+    <circle cx="850" cy="186" r="13"/><circle cx="160" cy="120" r="13"/><circle cx="760" cy="120" r="13"/>
+    <circle cx="160" cy="93" r="13"/><circle cx="760" cy="93" r="13"/><circle cx="230" cy="226" r="13"/>
+    <circle cx="730" cy="226" r="13"/><circle cx="230" cy="496" r="13"/><circle cx="730" cy="496" r="13"/>
+    <circle cx="267" cy="114" r="13"/>
+  </g>
+  <g fill="#0a0a0a" font-size="14" font-weight="700" text-anchor="middle">
+    <text x="660" y="215">1</text><text x="180" y="280">2</text><text x="685" y="280">3</text>
+    <text x="110" y="211">4</text><text x="850" y="505">5</text><text x="110" y="393">6</text>
+    <text x="850" y="191">7</text><text x="160" y="125">8</text><text x="760" y="125">8</text>
+    <text x="160" y="98">9</text><text x="760" y="98">9</text><text x="230" y="231">10</text>
+    <text x="730" y="231">10</text><text x="230" y="501">11</text><text x="730" y="501">11</text>
+    <text x="267" y="119">12</text>
+  </g>
+
+  <!-- legend -->
+  <rect x="960" y="120" width="400" height="650" rx="16" fill="#141414" stroke="#2a2a2a" stroke-width="2"/>
+  <text x="988" y="158" fill="#eeeeee" font-size="18" font-weight="700">Legend</text>
+  <g font-size="14" fill="#eeeeee">
+    <text x="1018" y="195">Touchscreen - pointer and taps</text>
+    <text x="1018" y="241">Left trackpad - pointer, scroll, tap</text>
+    <text x="1018" y="287">Right trackpad - pointer, scroll, tap</text>
+    <text x="1018" y="333">Left stick - gamepad (Steam Input)</text>
+    <text x="1018" y="379">Right stick - gamepad (Steam Input)</text>
+    <text x="1018" y="425">D-pad - gamepad (Steam Input)</text>
+    <text x="1018" y="471">ABXY - gamepad (Steam Input)</text>
+    <text x="1018" y="517">L1 / R1 - gamepad (Steam Input)</text>
+    <text x="1018" y="563">L2 / R2 - gamepad (Steam Input)</text>
+    <text x="1018" y="609">View / Menu - Steam Input</text>
+    <text x="1018" y="655">Steam / Quick Access - Steam UI</text>
+    <text x="1018" y="701">Power / Volume / Ports - sleep, sound, dock</text>
+  </g>
+  <g fill="#fab283">
+    <circle cx="988" cy="190" r="12"/><circle cx="988" cy="236" r="12"/><circle cx="988" cy="282" r="12"/>
+    <circle cx="988" cy="328" r="12"/><circle cx="988" cy="374" r="12"/><circle cx="988" cy="420" r="12"/>
+    <circle cx="988" cy="466" r="12"/><circle cx="988" cy="512" r="12"/><circle cx="988" cy="558" r="12"/>
+    <circle cx="988" cy="604" r="12"/><circle cx="988" cy="650" r="12"/><circle cx="988" cy="696" r="12"/>
+  </g>
+  <g fill="#0a0a0a" font-size="12" font-weight="700" text-anchor="middle">
+    <text x="988" y="194">1</text><text x="988" y="240">2</text><text x="988" y="286">3</text>
+    <text x="988" y="332">4</text><text x="988" y="378">5</text><text x="988" y="424">6</text>
+    <text x="988" y="470">7</text><text x="988" y="516">8</text><text x="988" y="562">9</text>
+    <text x="988" y="608">10</text><text x="988" y="654">11</text><text x="988" y="700">12</text>
+  </g>
+  <text x="988" y="744" fill="#808080" font-size="12">Steam must be running for Steam Input.</text>
+</svg>

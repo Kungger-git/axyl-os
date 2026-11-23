@@ -81,7 +81,8 @@ Switching is one-shot through `steamosctl`, so `DefaultLoginMode` is never
 changed. The installer keeps KDE's configuration intact, backs up every
 overwritten user file, and stages a repair tree so the setup can be re-applied
 after a SteamOS update. See `steamdeck/README.md` for controls, the on-screen
-keyboard, hardware controls, and uninstall.
+keyboard, hardware controls, and uninstall, and `steamdeck/CONTROLS.md` for a
+diagrammed guide to every button.
 
 ### Flash to USB
 

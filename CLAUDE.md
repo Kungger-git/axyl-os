@@ -121,9 +121,11 @@ docker/
   Dockerfile.brave                    ← builds the vendored brave-bin package
 steamdeck/                            ← Axyl Hyprland desktop payload for stock SteamOS (steam-deck branch)
   install.sh, uninstall.sh            ← package + session + user install / removal
+  CONTROLS.md                         ← visual guide: app buttons, Waybar, physical controls
   bin/{axyl-switch,axyl-hyprland-session,axyl-deck,axyl-osk}
   config/{hypr/conf/device.lua,waybar,rofi,foot}
   system/{wayland-sessions,applications}/*.desktop, system/axyl-deck.svg
+  assets/{axyl-deck-app,deck-controls,waybar,session-flow}.svg  ← diagrams for CONTROLS.md
   share/squeekboard/us.yaml           ← vendored squeekboard layout (missing on SteamOS)
 build.sh                              ← assembles profile, builds image, runs mkarchiso
 flash.sh                              ← USB-only ISO writer with checksum verification

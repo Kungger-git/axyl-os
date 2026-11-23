@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="520" viewBox="0 0 1100 520" font-family="Inter, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#808080"/>
+    </marker>
+  </defs>
+  <rect width="1100" height="520" fill="#0a0a0a"/>
+  <text x="40" y="40" fill="#eeeeee" font-size="22" font-weight="700">Switching sessions</text>
+
+  <!-- game mode -->
+  <rect x="70" y="70" width="320" height="120" rx="14" fill="#1e1e1e" stroke="#7fd88f" stroke-width="2"/>
+  <text x="230" y="112" fill="#eeeeee" font-size="20" font-weight="700" text-anchor="middle">Steam Game Mode</text>
+  <text x="230" y="140" fill="#808080" font-size="13" text-anchor="middle">SteamOS default</text>
+  <text x="230" y="166" fill="#7fd88f" font-size="12" text-anchor="middle">DefaultLoginMode = game</text>
+
+  <!-- hyprland -->
+  <rect x="70" y="320" width="320" height="120" rx="14" fill="#1e1e1e" stroke="#fab283" stroke-width="2"/>
+  <text x="230" y="362" fill="#fab283" font-size="20" font-weight="700" text-anchor="middle">Axyl Hyprland</text>
+  <text x="230" y="390" fill="#808080" font-size="13" text-anchor="middle">axyl-hyprland.desktop</text>
+  <text x="230" y="416" fill="#808080" font-size="12" text-anchor="middle">Steam runs silently</text>
+
+  <!-- kde -->
+  <rect x="710" y="320" width="320" height="120" rx="14" fill="#1e1e1e" stroke="#5c9cf5" stroke-width="2"/>
+  <text x="870" y="362" fill="#5c9cf5" font-size="20" font-weight="700" text-anchor="middle">KDE Plasma</text>
+  <text x="870" y="390" fill="#808080" font-size="13" text-anchor="middle">plasmax11.desktop</text>
+  <text x="870" y="416" fill="#808080" font-size="12" text-anchor="middle">config left unchanged</text>
+
+  <!-- vertical arrows -->
+  <line x1="150" y1="192" x2="150" y2="318" stroke="#808080" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="310" y1="320" x2="310" y2="194" stroke="#808080" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="230" y="228" fill="#eeeeee" font-size="13" text-anchor="middle">axyl-switch hyprland</text>
+  <text x="230" y="246" fill="#808080" font-size="12" text-anchor="middle">one-shot</text>
+  <text x="230" y="288" fill="#eeeeee" font-size="13" text-anchor="middle">axyl-switch game</text>
+  <text x="230" y="306" fill="#808080" font-size="12" text-anchor="middle">or reboot</text>
+
+  <!-- horizontal arrows -->
+  <line x1="392" y1="360" x2="708" y2="360" stroke="#808080" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="708" y1="400" x2="392" y2="400" stroke="#808080" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="550" y="350" fill="#eeeeee" font-size="13" text-anchor="middle">axyl-switch kde</text>
+  <text x="550" y="424" fill="#eeeeee" font-size="13" text-anchor="middle">axyl-switch hyprland</text>
+
+  <text x="550" y="490" fill="#808080" font-size="13" text-anchor="middle">Switching never changes DefaultLoginMode. A reboot from any session returns to Steam Game Mode.</text>
+</svg>
