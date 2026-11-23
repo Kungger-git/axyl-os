@@ -39,6 +39,28 @@ access. Built ISOs, `SHA256SUMS`, and a small manifest are written under
 The builder images are rebuilt on each run. `mkarchiso` runs privileged inside
 Docker to create the loop-mounted ISO.
 
+### Steam Deck branch
+
+The `steam-deck` branch builds against Valve's SteamOS package repositories
+instead of Arch's:
+
+| Purpose | Repositories |
+|---|---|
+| Build + live + installed system | `jupiter-3.9`, `holo-3.9`, `core-3.9`, `extra-3.9`, `multilib-3.9` |
+
+The only mirror used is
+`https://steamdeck-packages.steamos.cloud/archlinux-mirror/$repo/os/$arch`.
+`holo-keyring` is installed and `pacman-key --populate archlinux holo` runs in
+`customize_airootfs.sh`, so the live and installed system verify Valve's
+signatures. The build host has no Valve keyring, so `archiso/pacman.conf` sets
+`SigLevel = Never` for the SteamOS repos – that applies to the Docker builder
+only.
+
+`axyl-install` copies both `/etc/pacman.conf` and `/etc/pacman.d/mirrorlist`
+into the target, so an installed system keeps the SteamOS repos.
+
+The `master` branch is unaffected and still uses Arch `core`/`extra`/`multilib`.
+
 ### Flash to USB
 
 ```bash

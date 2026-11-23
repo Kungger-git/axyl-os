@@ -141,6 +141,18 @@ tools/qmp.py                          ← QMP helper copied to ~/axyl-qemu for h
 
 Output paths: `axyl-out/arch/axyl-arch-<Y.m.d>-x86_64.iso`, `axyl-out/artix/axyl-artix-<Y.m.d>-x86_64.iso`.
 
+### steam-deck branch
+
+The `steam-deck` branch targets Valve's SteamOS 3.9 repositories:
+
+- `archiso/pacman.conf` (build host): `jupiter-3.9`, `holo-3.9`, `core-3.9`, `extra-3.9`, `multilib-3.9`, each with `SigLevel = Never` because the Docker builder has no Valve keyring.
+- `archiso/airootfs/etc/pacman.conf` (live + installed): the same five repos via `Include = /etc/pacman.d/mirrorlist`.
+- `archiso/airootfs/etc/pacman.d/mirrorlist`: only `https://steamdeck-packages.steamos.cloud/archlinux-mirror/$repo/os/$arch`.
+- `holo-keyring` is in both `packages.x86_64` and `packages.target`; `customize_airootfs.sh` runs `pacman-key --populate archlinux holo`.
+- `axyl-install` copies `/etc/pacman.conf` into the target alongside the mirrorlist.
+
+`master` keeps Arch `core`/`extra`/`multilib`. Do not merge SteamOS repo changes into `master`.
+
 ### profiledef.sh — current values
 
 **Arch** (`archiso/profiledef.sh`):
