@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# axyl-osk -- on-screen keyboard toggle for the Deck's Hyprland session.
+#
+# Squeekboard only maps its surface when a client announces text-input-v3, and
+# rofi never does, so the keyboard is shown and hidden through its D-Bus API
+# instead. wvkbd is used when it is installed, since it toggles with signals.
+set -euo pipefail
+
+STATE="$HOME/.local/state/axyl-deck"
+mkdir -p "$STATE"
+
+BUS_NAME="sm.puri.OSK0"
+BUS_OBJECT="/sm/puri/OSK0"
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -a "Axyl Keyboard" -t 2000 "$1" 2>/dev/null || true
+    fi
+    printf '%s\n' "$1" >>"$STATE/keyboard.log"
+}
+
+backend() {
+    if command -v wvkbd-mobintl >/dev/null 2>&1; then echo wvkbd-mobintl; return; fi
+    if command -v squeekboard >/dev/null 2>&1; then echo squeekboard; return; fi
+    return 1
+}
+
+# The session bus belongs to dbus-run-session, so recover its address from the
+# compositor when this runs outside the session (ssh, cron, a stray shell).
+session_bus() {
+    if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] &&
+        gdbus call --session -d "$BUS_NAME" -o "$BUS_OBJECT" \
+            -m org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1; then
+        return 0
+    fi
+    local pid address
+    pid=$(pgrep -x Hyprland | head -1) || return 1
+    address=$(tr '\0' '\n' <"/proc/$pid/environ" |
+        sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -1)
+    [ -n "$address" ] || return 1
+    export DBUS_SESSION_BUS_ADDRESS="$address"
+}
+
+squeek_visible() {
+    session_bus || return 1
+    [ "$(gdbus call --session -d "$BUS_NAME" -o "$BUS_OBJECT" \
+        -m org.freedesktop.DBus.Properties.Get "$BUS_NAME" Visible 2>/dev/null)" = "(<true>,)" ]
+}
+
+squeek_set_visible() {
+    session_bus || return 1
+    gdbus call --session -d "$BUS_NAME" -o "$BUS_OBJECT" \
+        -m "$BUS_NAME".SetVisible "$1" >/dev/null 2>&1
+}
+
+squeek_running() {
+    pgrep -x squeekboard >/dev/null 2>&1
+}
+
+start_squeekboard() {
+    if ! squeek_running; then
+        setsid squeekboard >/dev/null 2>&1 </dev/null &
+        disown 2>/dev/null || true
+        local waited=0
+        while [ "$waited" -lt 30 ] && ! session_bus; do
+            sleep 0.2
+            waited=$((waited + 1))
+        done
+    fi
+    squeek_set_visible true
+}
+
+start() {
+    local b
+    b=$(backend) || { notify "No on-screen keyboard installed (squeekboard)"; exit 1; }
+    case "$b" in
+        squeekboard) start_squeekboard ;;
+        *)
+            if ! pgrep -f "$b" >/dev/null 2>&1; then
+                setsid "$b" >/dev/null 2>&1 </dev/null &
+                disown 2>/dev/null || true
+            fi
+            pkill -USR2 -f "$b" 2>/dev/null || true
+            ;;
+    esac
+    notify "Keyboard shown"
+}
+
+stop() {
+    local b
+    b=$(backend) || exit 0
+    case "$b" in
+        squeekboard)
+            squeek_running && squeek_set_visible false
+            ;;
+        *)
+            pkill -USR1 -f "$b" 2>/dev/null || true
+            ;;
+    esac
+    notify "Keyboard hidden"
+}
+
+toggle() {
+    local b
+    b=$(backend) || { notify "No on-screen keyboard installed (squeekboard)"; exit 1; }
+    case "$b" in
+        squeekboard)
+            if squeek_running && squeek_visible; then
+                stop
+            else
+                start
+            fi
+            ;;
+        *)
+            if pgrep -f "$b" >/dev/null 2>&1; then stop; else start; fi
+            ;;
+    esac
+}
+
+case "${1:-toggle}" in
+    start|show|on) start ;;
+    stop|hide|off) stop ;;
+    toggle) toggle ;;
+    status)
+        b=$(backend) || { echo "missing"; exit 1; }
+        if [ "$b" = squeekboard ]; then
+            if squeek_visible; then echo "visible ($b)"; else echo "available ($b)"; fi
+        else
+            if pgrep -f "$b" >/dev/null 2>&1; then echo "running ($b)"; else echo "available ($b)"; fi
+        fi
+        ;;
+    *)
+        echo "Usage: axyl-osk [start|stop|toggle|status]" >&2
+        exit 2
+        ;;
+esac

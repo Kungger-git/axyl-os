@@ -1,0 +1,74 @@
+// ~/.config/waybar/config -- Steam Deck (1280x800) profile.
+// Installed by steamdeck/install.sh. Kept compact so the bar never covers a
+// game or the on-screen keyboard.
+{
+  "layer": "top",
+  "position": "top",
+  "height": 30,
+  "reload_style_on_change": true,
+
+  "modules-left": ["hyprland/workspaces"],
+  "modules-center": ["clock"],
+  "modules-right": ["custom/axyl", "custom/osk", "backlight", "pulseaudio", "network", "custom/battery", "tray"],
+
+  "hyprland/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+      "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
+      "6": "6", "7": "7", "8": "8", "9": "9", "10": "10"
+    }
+  },
+
+  "clock": {
+    "format": "{:%H:%M}",
+    "tooltip-format": "<big>{:%A, %d %B %Y}</big>",
+    "interval": 10
+  },
+
+  "custom/axyl": {
+    "format": "Axyl",
+    "tooltip": true,
+    "tooltip-format": "Axyl Deck: switch session and controls",
+    "on-click": "axyl-switch gui"
+  },
+
+  "custom/osk": {
+    "format": "KB",
+    "tooltip": true,
+    "tooltip-format": "On-screen keyboard",
+    "on-click": "axyl-osk toggle"
+  },
+
+  "backlight": {
+    "format": "B {percent}%",
+    "tooltip": false,
+    "interval": 5
+  },
+
+  "pulseaudio": {
+    "format": "V {volume}%",
+    "format-muted": "V muted",
+    "max-volume": 100,
+    "interval": 5
+  },
+
+  "network": {
+    "format-wifi": "W {essid}",
+    "format-ethernet": "E {ipaddr}",
+    "format-disconnected": "offline",
+    "tooltip-format": "{ifname} - {ipaddr}/{cidr} - {signalStrength}%",
+    "interval": 10
+  },
+
+  "custom/battery": {
+    "exec": "$HOME/.local/bin/waybar-battery BAT1",
+    "return-type": "json",
+    "interval": 10,
+    "tooltip": true
+  },
+
+  "tray": {
+    "icon-size": 16,
+    "spacing": 8
+  }
+}

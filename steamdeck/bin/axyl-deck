@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# axyl-deck -- Steam Deck hardware controls for the Axyl Hyprland session.
+# Uses Valve's steamosctl (TDP, governor, fan) plus brightnessctl / wpctl.
+set -euo pipefail
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+battery_dir() {
+    for d in /sys/class/power_supply/BAT1 /sys/class/power_supply/BAT0; do
+        [[ -d "$d" ]] && { echo "$d"; return 0; }
+    done
+    return 1
+}
+
+tdp_get() {
+    have steamosctl || { echo "?"; return 0; }
+    steamosctl get-tdp-limit 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo "?"
+}
+
+brightness_pct() {
+    have brightnessctl || { echo "?"; return 0; }
+    local cur max
+    cur=$(brightnessctl get 2>/dev/null || echo 0)
+    max=$(brightnessctl max 2>/dev/null || echo 1)
+    [[ "$max" -gt 0 ]] || max=1
+    echo $(( cur * 100 / max ))
+}
+
+volume_pct() {
+    have wpctl || { echo "?"; return 0; }
+    wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null \
+        | awk '{printf "%d", $2 * 100}' || echo "?"
+}
+
+governor_get() {
+    have steamosctl || { echo "?"; return 0; }
+    steamosctl get-cpu-scaling-governor 2>/dev/null | awk -F': ' '{print $2}' || echo "?"
+}
+
+fan_get() {
+    have steamosctl || { echo "?"; return 0; }
+    steamosctl get-fan-control-state 2>/dev/null | awk -F': ' '{print tolower($2)}' || echo "?"
+}
+
+status() {
+    local bat="?" charge="?" bright tdp vol gov fan
+    if bd=$(battery_dir); then
+        bat=$(cat "$bd/capacity" 2>/dev/null || echo "?")
+        charge=$(cat "$bd/status" 2>/dev/null || echo "?")
+    fi
+    bright=$(brightness_pct)
+    tdp=$(tdp_get)
+    vol=$(volume_pct)
+    gov=$(governor_get)
+    fan=$(fan_get)
+
+    printf 'Battery:    %s%% (%s)\n' "$bat" "$charge"
+    printf 'Brightness: %s%%\n' "$bright"
+    printf 'Volume:     %s%%\n' "$vol"
+    printf 'TDP:        %s W\n' "$tdp"
+    printf 'Governor:   %s\n' "$gov"
+    printf 'Fan:        %s\n' "$fan"
+}
+
+tdp_cmd() {
+    local value="${1:-show}"
+    case "$value" in
+        show|"") tdp_get ;;
+        *)
+            [[ "$value" =~ ^[0-9]+$ ]] || { echo "TDP must be a number in watts" >&2; exit 2; }
+            local max min
+            max=$(steamosctl get-tdp-limit-max 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo 15)
+            min=$(steamosctl get-tdp-limit-min 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo 3)
+            if (( value < min || value > max )); then
+                echo "TDP must be between ${min} W and ${max} W" >&2
+                exit 2
+            fi
+            steamosctl set-tdp-limit "$value"
+            ;;
+    esac
+}
+
+brightness_cmd() {
+    have brightnessctl || { echo "brightnessctl is not installed" >&2; exit 1; }
+    case "${1:-show}" in
+        show|"") brightness_pct ;;
+        up)     brightnessctl set 10%+ >/dev/null ;;
+        down)   brightnessctl set 10%- >/dev/null ;;
+        *)
+            [[ "$1" =~ ^[0-9]+$ ]] || { echo "Brightness must be 0-100" >&2; exit 2; }
+            brightnessctl set "$1%" >/dev/null
+            ;;
+    esac
+}
+
+volume_cmd() {
+    have wpctl || { echo "wpctl is not installed" >&2; exit 1; }
+    case "${1:-show}" in
+        show|"") volume_pct ;;
+        up)     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+ >/dev/null ;;
+        down)   wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- >/dev/null ;;
+        mute)   wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null ;;
+        *)
+            [[ "$1" =~ ^[0-9]+$ ]] || { echo "Volume must be 0-100" >&2; exit 2; }
+            wpctl set-volume @DEFAULT_AUDIO_SINK@ "$1%" >/dev/null
+            ;;
+    esac
+}
+
+governor_cmd() {
+    local value="${1:-show}"
+    if [[ "$value" == show || -z "$value" ]]; then
+        governor_get
+        return
+    fi
+    steamosctl set-cpu-scaling-governor "$value"
+}
+
+fan_cmd() {
+    local value="${1:-show}"
+    if [[ "$value" == show || -z "$value" ]]; then
+        fan_get
+        return
+    fi
+    case "$value" in
+        bios|os) steamosctl set-fan-control-state "$value" ;;
+        *) echo "Fan state must be bios or os" >&2; exit 2 ;;
+    esac
+}
+
+profile_cmd() {
+    case "${1:-show}" in
+        show)
+            echo "TDP $(tdp_get) W, governor $(governor_get), fan $(fan_get)"
+            ;;
+        eco)
+            steamosctl set-cpu-scaling-governor powersave
+            steamosctl set-fan-control-state bios
+            steamosctl set-tdp-limit 5
+            ;;
+        balanced)
+            steamosctl set-cpu-scaling-governor powersave
+            steamosctl set-fan-control-state os
+            steamosctl set-tdp-limit 10
+            ;;
+        max)
+            steamosctl set-cpu-scaling-governor performance
+            steamosctl set-fan-control-state os
+            steamosctl set-tdp-limit 15
+            ;;
+        *)
+            echo "Profile must be eco, balanced or max" >&2
+            exit 2
+            ;;
+    esac
+}
+
+files_cmd() {
+    if have dolphin; then
+        exec dolphin "$HOME"
+    elif have nautilus; then
+        exec nautilus "$HOME"
+    elif have thunar; then
+        exec thunar "$HOME"
+    else
+        exec xdg-open "$HOME"
+    fi
+}
+
+screenshot_cmd() {
+    local mode="${1:-region}"
+    if [[ -x "$HOME/.local/bin/screenshot" ]]; then
+        exec "$HOME/.local/bin/screenshot" "$mode"
+    fi
+    echo "screenshot helper not installed" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'EOF'
+Usage: axyl-deck <command> [value]
+
+  status                    battery, brightness, volume, TDP, governor, fan
+  tdp [show|WATTS]          read or set the TDP limit (3-15 W)
+  brightness [show|up|down|PERCENT]
+  volume [show|up|down|mute|PERCENT]
+  governor [show|NAME]      cpu scaling governor (powersave/performance/...)
+  fan [show|bios|os]
+  profile [show|eco|balanced|max]
+  files                     open the file manager
+  screenshot [region|window|output]
+EOF
+}
+
+case "${1:-status}" in
+    status|show) status ;;
+    tdp)         shift; tdp_cmd "${1:-show}" ;;
+    brightness)  shift; brightness_cmd "${1:-show}" ;;
+    volume)      shift; volume_cmd "${1:-show}" ;;
+    governor)    shift; governor_cmd "${1:-show}" ;;
+    fan)         shift; fan_cmd "${1:-show}" ;;
+    profile)     shift; profile_cmd "${1:-show}" ;;
+    files)       files_cmd ;;
+    screenshot)  shift; screenshot_cmd "${1:-region}" ;;
+    -h|--help|help) usage ;;
+    *) echo "unknown command: $1 (try: axyl-deck help)" >&2; exit 2 ;;
+esac

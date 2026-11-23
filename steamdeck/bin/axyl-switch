@@ -1,0 +1,1016 @@
+#!/usr/bin/env python3
+"""Axyl Deck -- switch between SteamOS Game Mode, KDE and Axyl Hyprland.
+
+The same script is the desktop application (GTK3) and a CLI:
+
+    axyl-switch                  open the app
+    axyl-switch hyprland         one-shot switch to the Axyl Hyprland session
+    axyl-switch kde              one-shot switch to the KDE desktop session
+    axyl-switch game             return to Steam Game Mode
+    axyl-switch steam            open Steam Big Picture
+    axyl-switch terminal         open foot
+    axyl-switch keyboard         toggle the on-screen keyboard
+    axyl-switch controls         open the Deck hardware controls
+    axyl-switch status           print session and readiness information
+    axyl-switch logs             print the last log lines
+    axyl-switch setup            re-run the installer (repair)
+
+Safety: switching is one-shot through steamosctl. DefaultLoginMode is never
+changed and a reboot always returns to Game Mode.
+"""
+from __future__ import annotations
+
+import getpass
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HOME = Path.home()
+STATE = HOME / ".local/state/axyl-deck"
+LOG = STATE / "switch.log"
+HYPR_SESSION = "axyl-hyprland.desktop"
+GAME_SESSION = "gamescope-wayland.desktop"
+HYPR_CONFIG = HOME / ".config/hypr"
+INSTALLER = STATE / "tree/steamdeck/install.sh"
+
+# Over ssh the session environment is missing, and hyprctl cannot find the
+# compositor without these. Stale instance directories from earlier sessions
+# stay behind, so pick the newest one that still has a live socket.
+os.environ.setdefault("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+    try:
+        instances = [
+            path
+            for path in (Path(os.environ["XDG_RUNTIME_DIR"]) / "hypr").iterdir()
+            if (path / ".socket.sock").exists()
+        ]
+    except OSError:
+        instances = []
+    if instances:
+        newest = max(instances, key=lambda path: path.stat().st_mtime)
+        os.environ["HYPRLAND_INSTANCE_SIGNATURE"] = newest.name
+
+try:
+    import gi
+
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gdk, GLib, Gtk
+
+    HAVE_GTK = True
+except Exception:  # CLI must work without GTK (e.g. over SSH)
+    HAVE_GTK = False
+
+
+# ------------------------------------------------------------------- basics ---
+def log(message: str) -> None:
+    STATE.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a", encoding="utf-8") as handle:
+        handle.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), message))
+
+
+def have(binary: str) -> bool:
+    return shutil.which(binary) is not None
+
+
+def run(cmd: list[str], timeout: int = 20) -> subprocess.CompletedProcess:
+    log("run: " + " ".join(cmd))
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout
+        )
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(cmd, 127, "", "not found: " + cmd[0])
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, "", "timed out")
+    if result.returncode != 0:
+        log("  exit %s: %s" % (result.returncode, (result.stderr or "").strip()[:300]))
+    return result
+
+
+class SwitchError(RuntimeError):
+    pass
+
+
+# ------------------------------------------------------------------ session ---
+def current_session() -> str:
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    if "hyprland" in desktop:
+        return "hyprland"
+    if "kde" in desktop or "plasma" in desktop:
+        return "kde"
+    if "gamescope" in desktop:
+        return "game"
+    # logind knows the graphical session even when this runs over ssh.
+    session_id = display_session_id()
+    if session_id:
+        result = run(
+            ["loginctl", "show-session", session_id, "-p", "Desktop", "--value"]
+        )
+        value = (result.stdout or "").strip().lower()
+        if "hyprland" in value:
+            return "hyprland"
+        if "kde" in value or "plasma" in value:
+            return "kde"
+        if "gamescope" in value:
+            return "game"
+    if run(["pgrep", "-x", "Hyprland"]).returncode == 0:
+        return "hyprland"
+    if run(["pgrep", "-x", "plasmashell"]).returncode == 0:
+        return "kde"
+    return "unknown"
+
+
+def session_label(name: str) -> str:
+    return {
+        "hyprland": "Axyl Hyprland",
+        "kde": "KDE Plasma",
+        "game": "Steam Game Mode",
+    }.get(name, "Unknown session")
+
+
+def valid_sessions() -> list[str]:
+    result = run(["steamosctl", "get-valid-desktop-sessions"])
+    text = (result.stdout or "") + (result.stderr or "")
+    found = re.findall(r"\b([A-Za-z0-9_.+-]+\.desktop)\b", text)
+    return list(dict.fromkeys(found))
+
+
+def default_desktop_session() -> str:
+    result = run(["steamosctl", "get-default-desktop-session"])
+    text = (result.stdout or "").strip()
+    match = re.search(r"\b([A-Za-z0-9_.+-]+\.desktop)\b", text)
+    return match.group(1) if match else ""
+
+
+def kde_session() -> str:
+    sessions = valid_sessions()
+    for candidate in ("plasmax11.desktop", "plasma.desktop"):
+        if candidate in sessions:
+            return candidate
+    for candidate in sessions:
+        if "plasma" in candidate:
+            return candidate
+    return default_desktop_session()
+
+
+def hypr_problems() -> list[str]:
+    problems: list[str] = []
+    if not (have("Hyprland") or have("start-hyprland")):
+        problems.append("hyprland package")
+    if not Path("/usr/share/wayland-sessions/%s" % HYPR_SESSION).is_file():
+        problems.append("session entry")
+    if not (HYPR_CONFIG / "hyprland.lua").is_file():
+        problems.append("Hyprland config")
+    for binary in ("waybar", "foot", "rofi"):
+        if not have(binary):
+            problems.append(binary)
+    return problems
+
+
+def status() -> dict:
+    session = current_session()
+    return {
+        "session": session,
+        "session_label": session_label(session),
+        "valid": valid_sessions(),
+        "default_desktop": default_desktop_session(),
+        "hypr_missing": hypr_problems(),
+        "tdp": tdp_value(),
+        "governor": governor_value(),
+    }
+
+
+# ----------------------------------------------------------------- switches ---
+def close_steam() -> None:
+    if (
+        run(["pgrep", "-x", "steam"]).returncode == 0
+        or run(["pgrep", "-f", "steamwebhelper"]).returncode == 0
+    ):
+        run(["steam", "-shutdown"], timeout=15)
+        time.sleep(1)
+    run(["sync"], timeout=15)
+
+
+def display_session_id() -> str:
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or "deck"
+    result = run(["loginctl", "show-user", user, "-p", "Display", "--value"])
+    return (result.stdout or "").strip()
+
+
+def leave_session() -> None:
+    """End the graphical session so SDDM re-reads its autologin config."""
+    if run(["pgrep", "-x", "Hyprland"]).returncode == 0 and have("hyprctl"):
+        run(["hyprctl", "dispatch", "hl.dsp.exit()"], timeout=15)
+        return
+    session_id = display_session_id()
+    if session_id:
+        run(["loginctl", "terminate-session", session_id], timeout=15)
+
+
+def ensure_switch(target: str, timeout: float = 5.0) -> None:
+    """steamosctl only writes the SDDM config for some targets; if the target
+    session never appears, end the current desktop session so SDDM acts on it.
+
+    Game Mode is left alone: SteamOS restarts SDDM itself when leaving it, and
+    terminating the gamescope session races that restart.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if current_session() == target:
+            return
+        time.sleep(0.5)
+    now = current_session()
+    if now in ("hyprland", "kde") and now != target:
+        log("session did not change; ending it so SDDM re-reads the config")
+        leave_session()
+
+
+def fallback_login(session: str) -> bool:
+    """SteamOS temporary SDDM autologin; removed on the next boot."""
+    script = (
+        'printf "[Autologin]\\nSession=%s\\n" > /etc/sddm.conf.d/zzt-holo-temp-login.conf'
+        " && systemctl restart sddm" % session
+    )
+    if run(["sudo", "-n", "sh", "-c", script], timeout=60).returncode == 0:
+        return True
+    if have("pkexec"):
+        return run(["pkexec", "sh", "-c", script], timeout=300).returncode == 0
+    return False
+
+
+def switch_to(session: str, fallback: str | None = None) -> None:
+    if session == HYPR_SESSION:
+        missing = hypr_problems()
+        if missing:
+            raise SwitchError(
+                "Hyprland is not ready: " + ", ".join(missing)
+                + ".\nRun Setup / Repair first."
+            )
+
+    close_steam()
+    result = run(["steamosctl", "switch-to-desktop-mode", session], timeout=45)
+    detail = (result.stderr or result.stdout or "").strip()
+    # The SteamOS manager can exit while Steam shuts down; retry once.
+    if result.returncode != 0 and any(
+        token in detail for token in ("SteamOSManager1", "ChildExited", "Spawn")
+    ):
+        time.sleep(2)
+        result = run(["steamosctl", "switch-to-desktop-mode", session], timeout=45)
+        detail = (result.stderr or result.stdout or "").strip()
+    if result.returncode == 0:
+        ensure_switch("hyprland" if session == HYPR_SESSION else "kde")
+        return
+
+    log("steamosctl failed: " + detail)
+    if fallback and fallback_login(fallback):
+        return
+    raise SwitchError(
+        "SteamOS refused the session switch.\n%s\n\n"
+        "Try: sudo axyl-switch hyprland" % (detail or "no details")
+    )
+
+
+def switch_hyprland() -> None:
+    switch_to(HYPR_SESSION, HYPR_SESSION)
+
+
+def switch_kde() -> None:
+    target = kde_session()
+    if not target:
+        raise SwitchError("No KDE desktop session reported by SteamOS.")
+    switch_to(target, target)
+
+
+def switch_game() -> None:
+    close_steam()
+    result = run(["steamosctl", "switch-to-game-mode"], timeout=45)
+    if result.returncode == 0:
+        ensure_switch("game")
+        return
+    detail = (result.stderr or result.stdout or "").strip()
+    log("switch-to-game-mode failed: " + detail)
+    if fallback_login(GAME_SESSION):
+        return
+    raise SwitchError(
+        "SteamOS refused the switch to Game Mode.\n%s" % (detail or "no details")
+    )
+
+
+# ------------------------------------------------------------------- launch ---
+def launch_steam() -> None:
+    if not have("steam"):
+        raise SwitchError("steam is not installed")
+    if run(["pgrep", "-x", "steam"]).returncode == 0:
+        subprocess.Popen(
+            ["steam", "steam://open/bigpicture"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return
+    subprocess.Popen(
+        ["steam", "-gamepadui"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def launch_terminal() -> None:
+    for terminal in ("foot", "kitty", "xterm"):
+        if have(terminal):
+            subprocess.Popen([terminal], start_new_session=True)
+            return
+    raise SwitchError("No terminal installed (foot)")
+
+
+def toggle_keyboard() -> None:
+    if have("axyl-osk"):
+        subprocess.Popen(["axyl-osk", "toggle"], start_new_session=True)
+        return
+    script = HOME / ".local/bin/axyl-osk"
+    if script.is_file():
+        subprocess.Popen([str(script), "toggle"], start_new_session=True)
+        return
+    raise SwitchError("On-screen keyboard helper is missing")
+
+
+def open_files() -> None:
+    if have("axyl-deck"):
+        subprocess.Popen(["axyl-deck", "files"], start_new_session=True)
+    else:
+        subprocess.Popen(["xdg-open", str(HOME)], start_new_session=True)
+
+
+# ----------------------------------------------------------- hardware values ---
+def _int_output(cmd: list[str]) -> int | None:
+    result = run(cmd)
+    match = re.search(r"\b(\d+)\b", result.stdout or "")
+    return int(match.group(1)) if match else None
+
+
+def tdp_value() -> int | None:
+    return _int_output(["steamosctl", "get-tdp-limit"])
+
+
+def tdp_limits() -> tuple[int, int]:
+    low = _int_output(["steamosctl", "get-tdp-limit-min"]) or 3
+    high = _int_output(["steamosctl", "get-tdp-limit-max"]) or 15
+    return low, high
+
+
+def brightness_values() -> tuple[int, int, int]:
+    current = _int_output(["brightnessctl", "get"]) or 0
+    maximum = _int_output(["brightnessctl", "max"]) or 100
+    maximum = maximum or 100
+    return current, maximum, round(current * 100 / maximum)
+
+
+def volume_value() -> int | None:
+    result = run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+    match = re.search(r"Volume:\s*([0-9.]+)", result.stdout or "")
+    return round(float(match.group(1)) * 100) if match else None
+
+
+def governor_value() -> str:
+    result = run(["steamosctl", "get-cpu-scaling-governor"])
+    match = re.search(r":\s*([A-Za-z0-9_-]+)", result.stdout or "")
+    return match.group(1) if match else ""
+
+
+def governors() -> list[str]:
+    result = run(["steamosctl", "get-available-cpu-scaling-governors"])
+    names = re.findall(r"\b(performance|powersave|schedutil|ondemand|conservative|userspace)\b",
+                       (result.stdout or "") + (result.stderr or ""))
+    return list(dict.fromkeys(names)) or ["powersave", "performance"]
+
+
+def fan_value() -> str:
+    result = run(["steamosctl", "get-fan-control-state"])
+    match = re.search(r":\s*([A-Za-z]+)", result.stdout or "")
+    return match.group(1).lower() if match else "os"
+
+
+def set_tdp(value: int) -> None:
+    low, high = tdp_limits()
+    value = max(low, min(high, value))
+    result = run(["steamosctl", "set-tdp-limit", str(value)])
+    if result.returncode != 0:
+        raise SwitchError((result.stderr or "could not set TDP").strip())
+
+
+def set_brightness(percent: int) -> None:
+    result = run(["brightnessctl", "set", "%d%%" % max(1, min(100, percent))])
+    if result.returncode != 0:
+        raise SwitchError((result.stderr or "could not set brightness").strip())
+
+
+def set_volume(percent: int) -> None:
+    result = run(
+        ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "%d%%" % max(0, min(100, percent))]
+    )
+    if result.returncode != 0:
+        raise SwitchError((result.stderr or "could not set volume").strip())
+
+
+def set_governor(name: str) -> None:
+    result = run(["steamosctl", "set-cpu-scaling-governor", name])
+    if result.returncode != 0:
+        raise SwitchError((result.stderr or "could not set governor").strip())
+
+
+def set_fan(state: str) -> None:
+    result = run(["steamosctl", "set-fan-control-state", state])
+    if result.returncode != 0:
+        raise SwitchError((result.stderr or "could not set fan state").strip())
+
+
+# ------------------------------------------------------------------ installer ---
+def installer_path() -> Path | None:
+    if INSTALLER.is_file():
+        return INSTALLER
+    candidate = Path(__file__).resolve().parent.parent / "install.sh"
+    return candidate if candidate.is_file() else None
+
+
+def setup_command() -> list[str] | None:
+    installer = installer_path()
+    if installer is None:
+        return None
+    user = getpass.getuser()
+    if os.geteuid() == 0:
+        return [str(installer), "--repair", "--yes", "--user", user]
+    if have("pkexec"):
+        return ["pkexec", str(installer), "--repair", "--yes", "--user", user]
+    return None
+
+
+# ------------------------------------------------------------------ GTK GUI ---
+if HAVE_GTK:
+
+    GUI_PALETTE = {
+        "bg": "#0a0a0a", "bg_panel": "#141414", "bg_elem": "#1e1e1e",
+        "overlay": "#4e4e4e", "border": "#484848", "fg": "#eeeeee",
+        "fg_muted": "#808080", "accent": "#fab283", "accent_alt": "#9d7cd8",
+    }
+
+    def palette() -> dict:
+        values = dict(GUI_PALETTE)
+        try:
+            data = json.loads((HOME / ".config/theme/palette.json").read_text())
+            for key in list(values):
+                if isinstance(data.get(key), str):
+                    values[key] = data[key]
+        except (OSError, ValueError):
+            pass
+        return values
+
+    def install_css() -> None:
+        """Style this process only; never write GTK theme files."""
+        css = """
+window, .background { background-color: %(bg)s; color: %(fg)s; }
+headerbar, .titlebar {
+  background-color: %(bg_panel)s; color: %(fg)s;
+  border-bottom: 1px solid %(border)s; box-shadow: none;
+}
+headerbar .title { color: %(fg)s; font-weight: 600; }
+headerbar .subtitle { color: %(fg_muted)s; }
+button {
+  background-color: %(bg_elem)s; color: %(fg)s;
+  border: 1px solid %(border)s; border-radius: 10px; padding: 10px;
+  box-shadow: none;
+}
+button:hover { background-color: %(overlay)s; }
+button:active { background-color: %(accent_alt)s; color: %(bg)s; }
+button.suggested-action { background-color: %(accent)s; color: %(bg)s; font-weight: 600; }
+button.suggested-action:hover { background-color: %(accent_alt)s; }
+button.suggested-action:active { background-color: %(accent_alt)s; }
+scale trough { background-color: %(bg_elem)s; }
+scale highlight { background-color: %(accent)s; }
+combobox button { background-color: %(bg_elem)s; color: %(fg)s; }
+""" % palette()
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css.encode("utf-8"))
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
+    class DeckWindow(Gtk.ApplicationWindow):
+        def __init__(self, app: "DeckApp") -> None:
+            super().__init__(application=app, title="Axyl Deck")
+            self.app = app
+            self.set_default_size(720, 600)
+            self.set_border_width(0)
+
+            header = Gtk.HeaderBar(title="Axyl Deck", subtitle="SteamOS + Hyprland")
+            header.set_show_close_button(True)
+            self.set_titlebar(header)
+
+            outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            outer.set_border_width(18)
+            self.add(outer)
+
+            self.status_label = Gtk.Label(xalign=0)
+            self.status_label.set_line_wrap(True)
+            outer.pack_start(self.status_label, False, False, 0)
+
+            grid = Gtk.Grid(column_homogeneous=True, row_homogeneous=False,
+                            column_spacing=10, row_spacing=10)
+            outer.pack_start(grid, True, True, 0)
+
+            self.primary = self._button("", height=92)
+            self.primary.get_style_context().add_class("suggested-action")
+            self.primary.connect("clicked", self.on_primary)
+            grid.attach(self.primary, 0, 0, 2, 1)
+
+            self.kde_button = self._button("Return to KDE Desktop")
+            self.kde_button.connect("clicked", lambda *_: self.guard(switch_kde))
+            grid.attach(self.kde_button, 0, 1, 1, 1)
+
+            self.steam_button = self._button("Steam Big Picture")
+            self.steam_button.connect("clicked", lambda *_: self.guard(launch_steam))
+            grid.attach(self.steam_button, 1, 1, 1, 1)
+
+            self.term_button = self._button("Terminal")
+            self.term_button.connect("clicked", lambda *_: self.guard(launch_terminal))
+            grid.attach(self.term_button, 0, 2, 1, 1)
+
+            self.osk_button = self._button("On-Screen Keyboard")
+            self.osk_button.connect("clicked", lambda *_: self.guard(toggle_keyboard))
+            grid.attach(self.osk_button, 1, 2, 1, 1)
+
+            self.controls_button = self._button("Deck Controls")
+            self.controls_button.connect("clicked", lambda *_: self.open_controls())
+            grid.attach(self.controls_button, 0, 3, 1, 1)
+
+            self.files_button = self._button("Files")
+            self.files_button.connect("clicked", lambda *_: self.guard(open_files))
+            grid.attach(self.files_button, 1, 3, 1, 1)
+
+            self.setup_button = self._button("Setup / Repair")
+            self.setup_button.connect("clicked", lambda *_: self.on_setup())
+            grid.attach(self.setup_button, 0, 4, 1, 1)
+
+            self.logs_button = self._button("Logs")
+            self.logs_button.connect("clicked", lambda *_: self.open_logs())
+            grid.attach(self.logs_button, 1, 4, 1, 1)
+
+            self.hint = Gtk.Label(xalign=0)
+            self.hint.set_line_wrap(True)
+            outer.pack_start(self.hint, False, False, 0)
+
+            self.refresh()
+
+        # -- helpers ---------------------------------------------------------
+        @staticmethod
+        def _button(label: str, height: int = 62) -> Gtk.Button:
+            button = Gtk.Button()
+            button.set_size_request(-1, height)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_halign(Gtk.Align.CENTER)
+            box.set_valign(Gtk.Align.CENTER)
+            text = Gtk.Label(label=label)
+            text.set_line_wrap(True)
+            box.pack_start(text, False, False, 0)
+            button.add(box)
+            return button
+
+        def _set_button_text(self, button: Gtk.Button, label: str) -> None:
+            box = button.get_child()
+            if box is not None:
+                for child in box.get_children():
+                    child.set_text(label)
+
+        def refresh(self) -> None:
+            state = status()
+            session = state["session"]
+            missing = state["hypr_missing"]
+
+            if session == "hyprland":
+                self._set_button_text(self.primary, "Return to Steam Game Mode")
+                self.kde_button.show()
+                readiness = "Hyprland is running."
+            else:
+                self._set_button_text(self.primary, "Switch to Axyl Hyprland")
+                self.kde_button.hide()
+                readiness = (
+                    "Hyprland is ready."
+                    if not missing
+                    else "Missing: " + ", ".join(missing) + " - use Setup / Repair."
+                )
+
+            self.status_label.set_markup(
+                "<b>%s</b>\n<span size='small'>%s</span>"
+                % (GLib.markup_escape_text(state["session_label"]),
+                   GLib.markup_escape_text(readiness))
+            )
+            self.hint.set_markup(
+                "<span size='small'>Switching closes Steam and open apps. "
+                "A reboot always returns to Steam Game Mode.</span>"
+            )
+            self.setup_button.set_sensitive(bool(setup_command()) or os.geteuid() == 0)
+
+        def guard(self, action) -> None:
+            try:
+                action()
+            except SwitchError as exc:
+                self.error(str(exc))
+            except Exception as exc:  # keep the app alive on unexpected failures
+                log("unexpected: %r" % exc)
+                self.error(str(exc))
+
+        def error(self, message: str) -> None:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.CLOSE,
+                text="Axyl Deck",
+            )
+            dialog.format_secondary_text(message)
+            dialog.run()
+            dialog.destroy()
+
+        @staticmethod
+        def confirm(title: str, text: str, parent: Gtk.Window) -> bool:
+            dialog = Gtk.MessageDialog(
+                transient_for=parent,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.OK_CANCEL,
+                text=title,
+            )
+            dialog.format_secondary_text(text)
+            response = dialog.run()
+            dialog.destroy()
+            return response == Gtk.ResponseType.OK
+
+        # -- actions ---------------------------------------------------------
+        def on_primary(self, *_) -> None:
+            if current_session() == "hyprland":
+                if self.confirm("Return to Game Mode?",
+                                "Steam and all desktop apps will close.", self):
+                    self.guard(switch_game)
+            else:
+                if self.confirm("Switch to Axyl Hyprland?",
+                                "Steam and all open apps will close. The switch "
+                                "is one-shot; a reboot returns to Game Mode.", self):
+                    self.guard(switch_hyprland)
+
+        def open_controls(self) -> None:
+            window = ControlsWindow(self.app, self)
+            window.show_all()
+
+        def open_logs(self) -> None:
+            window = LogWindow(self.app, self)
+            window.show_all()
+
+        def on_setup(self) -> None:
+            command = setup_command()
+            if command is None:
+                self.error("Installer not found. Run steamdeck/install.sh from the "
+                           "repository (or copy it to ~/.local/share/axyl-deck/tree).")
+                return
+            if not self.confirm(
+                "Run Setup / Repair?",
+                "This installs or updates the Hyprland packages and session files. "
+                "Package installation needs administrator approval.",
+                self,
+            ):
+                return
+            STATE.mkdir(parents=True, exist_ok=True)
+            with LOG.open("a", encoding="utf-8") as handle:
+                handle.write("\n=== setup %s ===\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
+                self.proc = subprocess.Popen(
+                    command, stdout=handle, stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            self.setup_button.set_sensitive(False)
+            self._set_button_text(self.setup_button, "Setup running...")
+            GLib.timeout_add(500, self._poll_setup)
+
+        def _poll_setup(self) -> bool:
+            if self.proc.poll() is None:
+                return True
+            code = self.proc.returncode
+            self.setup_button.set_sensitive(True)
+            self._set_button_text(self.setup_button, "Setup / Repair")
+            self.refresh()
+            if code == 0:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self, flags=0,
+                    message_type=Gtk.MessageType.INFO,
+                    buttons=Gtk.ButtonsType.CLOSE, text="Setup complete",
+                )
+                dialog.format_secondary_text(
+                    "Hyprland is installed. Use 'Switch to Axyl Hyprland'.")
+                dialog.run()
+                dialog.destroy()
+            else:
+                self.error("Setup failed (exit %s). Open Logs for details." % code)
+            return False
+
+
+    class ControlsWindow(Gtk.ApplicationWindow):
+        def __init__(self, app: "DeckApp", parent: Gtk.Window | None = None) -> None:
+            super().__init__(application=app, title="Deck Controls")
+            if parent is not None:
+                self.set_transient_for(parent)
+            self.set_default_size(640, 480)
+            self.set_border_width(0)
+            self.pending: dict[str, int] = {}
+            self.loading = False
+
+            header = Gtk.HeaderBar(title="Deck Controls", subtitle="TDP, power and display")
+            header.set_show_close_button(True)
+            self.set_titlebar(header)
+
+            outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            outer.set_border_width(18)
+            self.add(outer)
+
+            grid = Gtk.Grid(column_spacing=12, row_spacing=10)
+            outer.pack_start(grid, False, False, 0)
+            row = 0
+
+            low, high = tdp_limits()
+            self.tdp = self._scale(grid, row, "TDP (W)", low, high, 1); row += 1
+            self.tdp.connect("value-changed", lambda *_: self.changed(
+                "tdp", lambda: set_tdp(int(self.tdp.get_value()))))
+
+            self.brightness = self._scale(grid, row, "Brightness (%)", 1, 100, 1); row += 1
+            self.brightness.connect("value-changed", lambda *_: self.changed(
+                "brightness", lambda: set_brightness(int(self.brightness.get_value()))))
+
+            self.volume = self._scale(grid, row, "Volume (%)", 0, 100, 1); row += 1
+            self.volume.connect("value-changed", lambda *_: self.changed(
+                "volume", lambda: set_volume(int(self.volume.get_value()))))
+
+            self.governor = self._combo(grid, row, "CPU governor"); row += 1
+            self.governor_names: list[str] = []
+            for name in governors():
+                self.governor.append_text(name)
+                self.governor_names.append(name)
+            self.governor.connect("changed", lambda *_: self.changed(
+                "governor", lambda: set_governor(self.governor.get_active_text() or "powersave")))
+
+            self.fan = self._combo(grid, row, "Fan control"); row += 1
+            for name in ("os", "bios"):
+                self.fan.append_text(name)
+            self.fan.connect("changed", lambda *_: self.changed(
+                "fan", lambda: set_fan(self.fan.get_active_text() or "os")))
+
+            profiles = Gtk.Box(spacing=8)
+            for label, profile in (("Eco", "eco"), ("Balanced", "balanced"), ("Max", "max")):
+                button = Gtk.Button(label=label)
+                button.connect("clicked", lambda _b, p=profile: self.profile(p))
+                profiles.pack_start(button, True, True, 0)
+            outer.pack_start(profiles, False, False, 0)
+
+            refresh = Gtk.Button(label="Refresh")
+            refresh.connect("clicked", lambda *_: self.load())
+            outer.pack_start(refresh, False, False, 0)
+
+            self.status_label = Gtk.Label(xalign=0)
+            self.status_label.set_line_wrap(True)
+            outer.pack_start(self.status_label, False, False, 0)
+
+            self.load()
+
+        @staticmethod
+        def _scale(grid, row, title, low, high, step) -> Gtk.Scale:
+            label = Gtk.Label(label=title, xalign=0)
+            scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, low, high, step)
+            scale.set_digits(0)
+            scale.set_hexpand(True)
+            scale.set_size_request(380, -1)
+            scale.set_value_pos(Gtk.PositionType.RIGHT)
+            grid.attach(label, 0, row, 1, 1)
+            grid.attach(scale, 1, row, 1, 1)
+            return scale
+
+        @staticmethod
+        def _combo(grid, row, title) -> Gtk.ComboBoxText:
+            label = Gtk.Label(label=title, xalign=0)
+            combo = Gtk.ComboBoxText()
+            grid.attach(label, 0, row, 1, 1)
+            grid.attach(combo, 1, row, 1, 1)
+            return combo
+
+        def changed(self, key: str, apply) -> None:
+            if self.loading:
+                return
+            old = self.pending.pop(key, None)
+            if old:
+                GLib.source_remove(old)
+
+            def fire():
+                self.pending.pop(key, None)
+                try:
+                    apply()
+                except SwitchError as exc:
+                    self.status_label.set_text(str(exc))
+                    return False
+                self.load()
+                return False
+
+            self.pending[key] = GLib.timeout_add(300, fire)
+
+        def profile(self, name: str) -> None:
+            result = run(["axyl-deck", "profile", name], timeout=30)
+            if result.returncode != 0:
+                self.status_label.set_text((result.stderr or "profile failed").strip())
+            self.load()
+
+        def load(self) -> None:
+            self.loading = True
+            try:
+                self.tdp.set_value(tdp_value() or tdp_limits()[0])
+
+                _, _, percent = brightness_values()
+                self.brightness.set_value(percent)
+                self.volume.set_value(volume_value() or 0)
+
+                current = governor_value()
+                if current and current not in self.governor_names:
+                    self.governor.append_text(current)
+                    self.governor_names.append(current)
+                if current in self.governor_names:
+                    self.governor.set_active(self.governor_names.index(current))
+
+                fan = fan_value()
+                self.fan.set_active(0 if fan == "os" else 1)
+
+                self.status_label.set_markup(
+                    "<span size='small'>%s</span>"
+                    % GLib.markup_escape_text(
+                        "TDP %s W - battery %s%% - governor %s - fan %s"
+                        % (tdp_value(), battery_percent(), governor_value(), fan_value())
+                    )
+                )
+            finally:
+                self.loading = False
+
+
+    class LogWindow(Gtk.ApplicationWindow):
+        def __init__(self, app: "DeckApp", parent: Gtk.Window | None = None) -> None:
+            super().__init__(application=app, title="Axyl Deck Logs")
+            if parent is not None:
+                self.set_transient_for(parent)
+            self.set_default_size(760, 520)
+
+            header = Gtk.HeaderBar(title="Logs")
+            header.set_show_close_button(True)
+            self.set_titlebar(header)
+
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_hexpand(True)
+            scroller.set_vexpand(True)
+            view = Gtk.TextView()
+            view.set_editable(False)
+            view.set_monospace(True)
+            view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            buffer = view.get_buffer()
+            text = []
+            for path in (LOG, STATE / "session.log"):
+                if path.is_file():
+                    lines = path.read_text(errors="replace").splitlines()[-300:]
+                    text.append("== %s ==" % path)
+                    text.extend(lines)
+                    text.append("")
+            buffer.set_text("\n".join(text) or "No logs yet.")
+            scroller.add(view)
+            self.add(scroller)
+
+
+    class DeckApp(Gtk.Application):
+        def __init__(self, controls_only: bool = False) -> None:
+            super().__init__(application_id="land.axyl.Deck")
+            self.controls_only = controls_only
+
+        def do_activate(self) -> None:
+            install_css()
+            if self.controls_only:
+                controls = ControlsWindow(self)
+                controls.show_all()
+                controls.present()
+                return
+            window = DeckWindow(self)
+            window.show_all()
+            window.present()
+
+
+# ------------------------------------------------------------------- battery ---
+def battery_percent() -> str:
+    for name in ("BAT1", "BAT0"):
+        path = Path("/sys/class/power_supply") / name / "capacity"
+        if path.is_file():
+            return path.read_text().strip()
+    return "?"
+
+
+# ----------------------------------------------------------------------- CLI ---
+def cli_status() -> int:
+    state = status()
+    print("Session:          %s" % state["session_label"])
+    print("Valid sessions:   %s" % (", ".join(state["valid"]) or "unknown"))
+    print("Default desktop:  %s" % (state["default_desktop"] or "unknown"))
+    if state["hypr_missing"]:
+        print("Hyprland missing: %s" % ", ".join(state["hypr_missing"]))
+    else:
+        print("Hyprland:         ready")
+    print("TDP:              %s W" % state["tdp"])
+    print("Governor:         %s" % (state["governor"] or "?"))
+    print("Battery:          %s%%" % battery_percent())
+    return 0
+
+
+def cli_logs() -> int:
+    if LOG.is_file():
+        print("\n".join(LOG.read_text(errors="replace").splitlines()[-200:]))
+    else:
+        print("No log yet: %s" % LOG)
+    return 0
+
+
+def cli_setup(yes: bool) -> int:
+    installer = installer_path()
+    if installer is None:
+        print("Installer not found. Run steamdeck/install.sh from the repository.",
+              file=sys.stderr)
+        return 1
+    command = [str(installer), "--repair"]
+    if yes:
+        command.append("--yes")
+    if os.geteuid() != 0:
+        if not have("sudo"):
+            print("sudo is not available", file=sys.stderr)
+            return 1
+        command = ["sudo"] + command
+    os.execvp(command[0], command)
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    STATE.mkdir(parents=True, exist_ok=True)
+    command = argv[0] if argv else "gui"
+    yes = "--yes" in argv
+
+    if command in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    if command == "status":
+        return cli_status()
+    if command == "logs":
+        return cli_logs()
+    if command in ("setup", "repair"):
+        return cli_setup(yes)
+    if command in ("hyprland", "hypr"):
+        switch_hyprland()
+        return 0
+    if command in ("kde", "desktop", "plasma"):
+        switch_kde()
+        return 0
+    if command in ("game", "steamos", "gamemode"):
+        switch_game()
+        return 0
+    if command == "steam":
+        launch_steam()
+        return 0
+    if command == "terminal":
+        launch_terminal()
+        return 0
+    if command == "keyboard":
+        toggle_keyboard()
+        return 0
+    if command == "files":
+        open_files()
+        return 0
+    if command == "gui":
+        if not HAVE_GTK:
+            print("GTK3 Python bindings are not available.", file=sys.stderr)
+            return 1
+        return DeckApp().run([sys.argv[0]])
+    if command == "controls":
+        if not HAVE_GTK:
+            print("GTK3 Python bindings are not available.", file=sys.stderr)
+            return 1
+        return DeckApp(controls_only=True).run([sys.argv[0]])
+
+    print("unknown command: %s (try: axyl-switch --help)" % command, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except SwitchError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1)

@@ -61,6 +61,28 @@ into the target, so an installed system keeps the SteamOS repos.
 
 The `master` branch is unaffected and still uses Arch `core`/`extra`/`multilib`.
 
+#### Axyl Deck desktop on stock SteamOS
+
+`steamdeck/` adds an optional Axyl Hyprland desktop to a **stock SteamOS** Deck
+without replacing Game Mode or KDE. Run `steamdeck/install.sh` in Desktop Mode:
+it installs the Hyprland stack from the SteamOS repos, registers the
+`axyl-hyprland.desktop` SDDM session, and installs the **Axyl Deck** app
+(`axyl-switch`), the hardware CLI (`axyl-deck`) and the on-screen keyboard
+toggle (`axyl-osk`).
+
+```bash
+cd steamdeck
+./install.sh
+axyl-switch hyprland        # one-shot switch; a reboot returns to Game Mode
+axyl-switch game --yes      # back to Steam Game Mode
+```
+
+Switching is one-shot through `steamosctl`, so `DefaultLoginMode` is never
+changed. The installer keeps KDE's configuration intact, backs up every
+overwritten user file, and stages a repair tree so the setup can be re-applied
+after a SteamOS update. See `steamdeck/README.md` for controls, the on-screen
+keyboard, hardware controls, and uninstall.
+
 ### Flash to USB
 
 ```bash
@@ -346,6 +368,7 @@ syncs time automatically (`systemd-timesyncd` on Arch, `chrony` on Artix).
 archiso/        Arch profile: packages, profiledef, airootfs
 artixiso/       Artix overlay/profile
 skel/           shared /etc/skel (desktop, shell, nvim, theme)
+steamdeck/      Axyl Hyprland desktop payload for stock SteamOS (steam-deck branch)
 docker/         builder Dockerfiles (arch, artix, brave)
 build.sh        per-variant ISO build, checksums, manifest
 flash.sh        USB-only flasher with checksum verification

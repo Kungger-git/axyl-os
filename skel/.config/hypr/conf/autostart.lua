@@ -10,6 +10,7 @@ hl.on("hyprland.start", function()
   -- Clipboard history store (needs cliphist + wl-clipboard).
   hl.exec_cmd("wl-paste --watch cliphist store")
 
-  -- Path is distro-specific (Arch shown). Alternative: hyprpolkitagent.
-  hl.exec_cmd("/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1")
+  -- Path is distro-specific. Prefer polkit-gnome (Arch ISO), then the KDE
+  -- agent (SteamOS Deck), then hyprpolkitagent.
+  hl.exec_cmd("sh -c 'for a in /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 /usr/lib/polkit-kde-authentication-agent-1 /usr/lib/hyprpolkitagent/hyprpolkitagent; do [ -x \"$a\" ] && exec \"$a\"; done'")
 end)

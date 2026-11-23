@@ -119,6 +119,12 @@ docker/
   Dockerfile.arch                     ← build-host packages for the arch variant
   Dockerfile.artix                    ← build-host packages for the artix variant
   Dockerfile.brave                    ← builds the vendored brave-bin package
+steamdeck/                            ← Axyl Hyprland desktop payload for stock SteamOS (steam-deck branch)
+  install.sh, uninstall.sh            ← package + session + user install / removal
+  bin/{axyl-switch,axyl-hyprland-session,axyl-deck,axyl-osk}
+  config/{hypr/conf/device.lua,waybar,rofi,foot}
+  system/{wayland-sessions,applications}/*.desktop, system/axyl-deck.svg
+  share/squeekboard/us.yaml           ← vendored squeekboard layout (missing on SteamOS)
 build.sh                              ← assembles profile, builds image, runs mkarchiso
 flash.sh                              ← USB-only ISO writer with checksum verification
 setup.sh                              ← host prep (Docker, optional QEMU)
@@ -152,6 +158,91 @@ The `steam-deck` branch targets Valve's SteamOS 3.9 repositories:
 - `axyl-install` copies `/etc/pacman.conf` into the target alongside the mirrorlist.
 
 `master` keeps Arch `core`/`extra`/`multilib`. Do not merge SteamOS repo changes into `master`.
+
+### Axyl Deck desktop (`steamdeck/`)
+
+`steamdeck/` adds an **Axyl Hyprland desktop to a stock SteamOS Deck** without
+touching Game Mode, KDE, or `/etc`. It is a separate payload: `build.sh` does not
+consume it, and `archiso/packages.x86_64` / `packages.target` are unchanged.
+
+Entry points:
+
+- `steamdeck/install.sh` — installs SteamOS packages with `pacman -S --needed`
+  (never `-Syu`, never a downgrade), registers the SDDM session, copies user
+  config, renders the palette, stages a repair tree. Flags: `--yes`, `--repair`,
+  `--user-only`, `--no-packages`, `--user NAME`.
+- `steamdeck/uninstall.sh` — removes the session entry, `/usr/local/bin` symlinks
+  and app icon; `--purge` also removes the user config. Packages and backups are
+  kept.
+- `steamdeck/bin/axyl-switch` — GTK3 app **and** CLI (`hyprland`, `kde`, `game`,
+  `steam`, `terminal`, `keyboard`, `controls`, `status`, `logs`, `setup`).
+- `steamdeck/bin/axyl-hyprland-session` — SDDM session wrapper; sets the Qt/
+  Wayland env, renders the palette, and execs `dbus-run-session -- start-hyprland`
+  (falling back to `Hyprland`).
+- `steamdeck/bin/axyl-deck` — TDP/governor/fan via `steamosctl`, brightness via
+  `brightnessctl`, volume via `wpctl`, plus `files`/`screenshot`.
+- `steamdeck/bin/axyl-osk` — squeekboard/wvkbd toggle.
+
+Installed packages (all from SteamOS repos, filtered by availability):
+`hyprland waybar foot rofi mako hyprlock hypridle grim slurp wl-clipboard
+cliphist hyprpicker rofi-emoji brightnessctl playerctl
+xdg-desktop-portal-hyprland xdg-desktop-portal-gtk squeekboard
+ttf-jetbrains-mono ttf-nerd-fonts-symbols polkit-kde-agent`.
+
+**Session switching is one-shot.** `axyl-switch` uses
+`steamosctl switch-to-desktop-mode <session>` / `switch-to-game-mode` and never
+changes `DefaultLoginMode`, so a reboot returns to Game Mode. `ensure_switch()`
+waits for the target session; if a Hyprland/KDE session does not change it ends
+that session (`hyprctl dispatch 'hl.dsp.exit()'` or `loginctl terminate-session`)
+so SDDM re-reads the temporary config. It never terminates a Game Mode session
+(SteamOS restarts SDDM itself when leaving Game Mode). The fallback path writes
+`/etc/sddm.conf.d/zzt-holo-temp-login.conf` and restarts SDDM.
+
+`steamdeck/config/hypr/conf/device.lua` is loaded last by
+`skel/.config/hypr/hyprland.lua` via `pcall(require, "conf.device")`. It sets the
+Deck monitor (`eDP-1`, `preferred`, `scale 1`, **`transform 3`** — the panel
+reports 800x1280 portrait and the Deck's panel is mounted rotated 180°), touchpad
+tuning, the four-finger workspace gesture, the touchscreen map, and rebinds
+`SUPER + W` (Steam Big Picture) and `SUPER + SHIFT + Escape` (return to Game
+Mode). Because `hl.bind` appends, it first removes the stock binds with
+`pcall(hl.unbind, ...)`. It also autostarts `steam -silent` on `hyprland.start`.
+
+The Deck profile renders in **`hypr` scope** (`AXYL_RENDER_SCOPE=hypr`, persisted
+in `~/.config/theme/scope`). `render.py` then skips `kdeglobals`, Qt6ct, GTK,
+KDE colour schemes and `gsettings`, so switching back to KDE leaves its desktop
+untouched. `AXYL_FONT_MONO="JetBrains Mono"` / `AXYL_FONT_ICON="Symbols Nerd Font"`
+match the fonts SteamOS actually ships.
+
+**On-screen keyboard:** squeekboard only raises itself for a `text-input-v3`
+client, and Rofi never does, so `axyl-osk` toggles it through its D-Bus API
+(`sm.puri.OSK0`, `/sm/puri/OSK0`, `SetVisible`). It recovers
+`DBUS_SESSION_BUS_ADDRESS` from `/proc/<Hyprland>/environ` because the session
+bus comes from `dbus-run-session`. The SteamOS `squeekboard` package ships no
+layout data, so `share/squeekboard/us.yaml` is installed to
+`~/.local/share/squeekboard/keyboards/us.yaml`; without it the keyboard is blank.
+
+**Lock is intentionally disabled.** `hyprlock` is a fullscreen window and
+squeekboard is a layer surface, so the OSK cannot appear above it; on a Deck with
+no hardware keyboard that is a lockout. `SUPER + L` shows a notification instead.
+
+Runtime state is in `~/.local/state/axyl-deck/`: `switch.log`, `session.log`,
+`keyboard.log`, `packages-before.txt`, `tree/` (staged repair copy used by
+`axyl-switch setup`, which runs `pkexec install.sh --repair --yes --user deck`),
+and `backup-*/` (timestamped user-file backups; never deleted by uninstall).
+
+Pitfalls:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Screen upside-down or portrait | panel is mounted rotated; native mode is 800x1280 | `transform = 3` in `device.lua` (2 is upside-down landscape, 1 is wrong here) |
+| KDE colours/fonts change after using Hyprland | `render.py` ran in `all` scope | Keep `AXYL_RENDER_SCOPE=hypr` and `~/.config/theme/scope` = `hypr` |
+| Session not listed by SteamOS after install | SDDM has not re-read the session dir | `sudo systemctl restart sddm` or reboot |
+| Switching to Game Mode does nothing | SDDM did not act on the one-shot config | `ensure_switch` ends the desktop session; never kill a Game Mode session |
+| On-screen keyboard blank | squeekboard has no layout data | Ensure `~/.local/share/squeekboard/keyboards/us.yaml` exists |
+| OSK does not appear over Rofi | squeekboard waits for text-input-v3 | Use `axyl-osk toggle` (D-Bus), not auto-show |
+| `hyprctl` fails over ssh | session env missing / stale instance dirs | `axyl-switch` sets `XDG_RUNTIME_DIR` and picks the newest live `hypr/*/.socket.sock` |
+| SteamOS update removes the session | updates rewrite `/usr` | `install.sh --repair` (or **Repair** in the app) |
+| `pacman -S` fails on space | `/` is small | Installer uses `~/.cache/axyl-pacman` and deletes it; abort below 350 MB, warn below 600 MB |
 
 ### profiledef.sh — current values
 

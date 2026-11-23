@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Axyl Hyprland
+Comment=Axyl Linux Hyprland desktop for Steam Deck
+Exec=/usr/local/bin/axyl-hyprland-session
+Type=Application
+DesktopNames=Hyprland
+Keywords=axyl;hyprland;wayland;steamdeck;

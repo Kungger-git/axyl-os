@@ -14,3 +14,6 @@ require("conf.input")
 require("conf.misc")
 require("conf.keybinds")
 require("conf.rules")
+
+-- Optional per-device overrides (Steam Deck payload ships conf/device.lua).
+pcall(require, "conf.device")

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Axyl Hyprland session for stock SteamOS (Steam Deck).
+# Launched by SDDM from /usr/share/wayland-sessions/axyl-hyprland.desktop.
+set -euo pipefail
+
+STATE="$HOME/.local/state/axyl-deck"
+mkdir -p "$STATE"
+exec >>"$STATE/session.log" 2>&1
+echo "=== axyl-hyprland-session $(date -Is) ==="
+
+export PATH="$HOME/.local/bin:$PATH"
+
+if [[ -z "${XDG_RUNTIME_DIR:-}" || ! -d "${XDG_RUNTIME_DIR:-/nonexistent}" ]]; then
+    if [[ -d "/run/user/$(id -u)" ]]; then
+        export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    else
+        export XDG_RUNTIME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/xdg-runtime-$(id -u).XXXXXX")"
+    fi
+fi
+
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=Hyprland
+export XDG_CURRENT_DESKTOP=Hyprland
+export XDG_SESSION_CLASS=user
+
+# Qt/Wayland with an XWayland fallback. Only enable the theme plugins that
+# actually exist on SteamOS.
+export QT_QPA_PLATFORM="wayland;xcb"
+command -v qt6ct >/dev/null 2>&1 && export QT_QPA_PLATFORMTHEME=qt6ct
+[[ -d /usr/share/kvantum ]] && export QT_STYLE_OVERRIDE=kvantum
+
+export MOZ_ENABLE_WAYLAND=1
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland}"
+
+# SteamOS ships JetBrains Mono and Symbols Nerd Font, not the mega Nerd Font
+# bundle. The renderer only writes Wayland-side files in this scope so the KDE
+# desktop keeps its own palette and fonts.
+export AXYL_RENDER_SCOPE=hypr
+export AXYL_FONT_MONO="JetBrains Mono"
+export AXYL_FONT_ICON="Symbols Nerd Font"
+
+if [[ -x "$HOME/.config/theme/render.py" ]]; then
+    "$HOME/.config/theme/render.py" || true
+fi
+
+if command -v start-hyprland >/dev/null 2>&1; then
+    exec dbus-run-session -- start-hyprland
+fi
+exec dbus-run-session -- Hyprland

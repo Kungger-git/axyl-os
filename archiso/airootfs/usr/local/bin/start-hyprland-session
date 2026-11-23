@@ -20,8 +20,8 @@ export XDG_CURRENT_DESKTOP=Hyprland
 
 # Qt/Wayland and XWayland fallback for apps that still need X11.
 export QT_QPA_PLATFORM="wayland;xcb"
-export QT_QPA_PLATFORMTHEME=qt6ct
-export QT_STYLE_OVERRIDE=kvantum
+command -v qt6ct >/dev/null 2>&1 && export QT_QPA_PLATFORMTHEME=qt6ct
+[[ -d /usr/share/kvantum ]] && export QT_STYLE_OVERRIDE=kvantum
 
 # Browser / Electron Wayland hints.
 export MOZ_ENABLE_WAYLAND=1
@@ -44,4 +44,7 @@ if [[ -x "$HOME/.config/theme/render.py" ]]; then
     "$HOME/.config/theme/render.py" || true
 fi
 
-exec dbus-run-session start-hyprland
+if command -v start-hyprland >/dev/null 2>&1; then
+    exec dbus-run-session start-hyprland
+fi
+exec dbus-run-session Hyprland

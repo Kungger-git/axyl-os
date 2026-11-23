@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Axyl Deck
+GenericName=Session Switcher
+Comment=Switch between Steam Game Mode, KDE and Axyl Hyprland
+Exec=axyl-switch gui
+Icon=axyl-deck
+Terminal=false
+Categories=System;Settings;
+Keywords=axyl;hyprland;steam;deck;session;
+StartupNotify=true

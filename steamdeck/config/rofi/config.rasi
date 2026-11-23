@@ -1,0 +1,14 @@
+@theme "~/.config/rofi/style.rasi"
+
+configuration {
+  modi: "drun,run,window";
+  font: "JetBrains Mono 13";
+  icon-theme: "Breeze";
+  drun-display-format: "{name}";
+  location: 0;
+  fullscreen: false;
+  sidebar-mode: false;
+  disable-history: false;
+  show-icons: true;
+  drun-match-fields: "name,generic,exec,categories,keywords";
+}
