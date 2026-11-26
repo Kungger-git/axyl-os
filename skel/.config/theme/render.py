@@ -573,7 +573,7 @@ def waybar_config(layout: dict) -> str:
             "interval": "once",
             "format": "{}",
             "tooltip": False,
-            "on-click": "rofi -show drun",
+            "on-click": "pkill -x rofi 2>/dev/null || rofi -show drun",
         },
         "hyprland/workspaces": {
             "format": "{icon}",
