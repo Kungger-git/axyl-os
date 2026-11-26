@@ -22,6 +22,7 @@ Usage
     themes.py current           print the active design/theme name
     themes.py set <name>        switch to <name> (design or opencode theme)
     themes.py pick              rofi picker (used by SUPER+SHIFT+T)
+    themes.py preview <name>    apply <name> without persisting (picker hover)
     themes.py sync              re-vendor themes for the installed opencode
 
 Notes
@@ -38,6 +39,7 @@ Notes
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -247,8 +249,11 @@ def current_name() -> str:
     return "opencode"
 
 
-def render() -> None:
-    subprocess.run([sys.executable, str(RENDER), "--reload"], check=True)
+def render(quiet: bool = False) -> None:
+    kwargs = (
+        {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if quiet else {}
+    )
+    subprocess.run([sys.executable, str(RENDER), "--reload"], check=True, **kwargs)
 
 
 def set_tui_theme(name: str) -> None:
@@ -296,7 +301,8 @@ def cmd_current() -> int:
     return 0
 
 
-def cmd_set(name: str) -> int:
+def palette_for(name: str):
+    """Palette and opencode theme for <name>, or (None, None) if unknown."""
     presets = designs()
     if name in presets:
         preset = presets[name]
@@ -309,12 +315,37 @@ def cmd_set(name: str) -> int:
         }
         palette.update(preset["palette"])
         palette["layout"] = preset.get("layout", {})
-        tui = preset.get("tui", "opencode")
-    elif name in theme_names():
+        return palette, preset.get("tui", "opencode")
+    if name in theme_names():
         palette = build_palette(name)
         palette["layout"] = existing_layout()
-        tui = name
-    else:
+        return palette, name
+    return None, None
+
+
+def clean_entry(text: str) -> str:
+    return text.replace("\u25cf", "").strip()
+
+
+def cmd_preview(text: str) -> int:
+    """Apply a theme for the duration of the picker without persisting it."""
+    name = clean_entry(text)
+    if not name or name == current_name():
+        return 0
+    palette, _ = palette_for(name)
+    if palette is None:
+        return 0
+    PALETTE.write_text(json.dumps(palette, indent=2) + "\n")
+    try:
+        render(quiet=True)
+    except subprocess.CalledProcessError:
+        return 1
+    return 0
+
+
+def cmd_set(name: str) -> int:
+    palette, tui = palette_for(name)
+    if palette is None:
         print(f"unknown design or theme: {name}", file=sys.stderr)
         print("run: %s list" % sys.argv[0], file=sys.stderr)
         return 2
@@ -352,21 +383,35 @@ def cmd_pick() -> int:
         print("rofi not found", file=sys.stderr)
         return 1
 
+    original = PALETTE.read_bytes() if PALETTE.exists() else None
     current = current_name()
     lines = [("\u25cf " if n == current else "  ") + n for n in names]
+
+    # Highlighting a row recolours the desktop so the picker previews themes;
+    # cancelling puts the original palette back.
+    self_cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}"
     command = ["rofi", "-dmenu", "-i", "-no-custom", "-p", "Theme"]
     if ROFI_STYLE.is_file():
         command += ["-theme", str(ROFI_STYLE)]
+    command += ["-on-selection-changed", f"{self_cmd} preview {{entry}}"]
 
     result = subprocess.run(
         command, input="\n".join(lines) + "\n", capture_output=True, text=True
     )
+    if original is not None:
+        PALETTE.write_bytes(original)
     if result.returncode != 0:
+        try:
+            render()
+        except subprocess.CalledProcessError:
+            pass
         return 0
-    choice = result.stdout.strip()
-    if choice.startswith("\u25cf "):
-        choice = choice[2:].strip()
+    choice = clean_entry(result.stdout)
     if not choice:
+        try:
+            render()
+        except subprocess.CalledProcessError:
+            pass
         return 0
     return cmd_set(choice)
 
@@ -446,6 +491,8 @@ def main() -> int:
         return cmd_set(args[1])
     if command == "pick":
         return cmd_pick()
+    if command == "preview":
+        return cmd_preview(" ".join(args[1:]))
     if command == "sync":
         return cmd_sync()
     print(f"unknown command: {command}", file=sys.stderr)

@@ -249,6 +249,10 @@ so switching changes the whole feel of the desktop, not just the colours.
 ~/.config/theme/themes.py pick             # rofi picker (SUPER + SHIFT + T)
 ```
 
+In the picker, moving the highlight recolours the desktop so you can see a
+theme before committing; `Enter` applies it, `Esc` puts the previous palette
+back.
+
 Designs also pick the opencode TUI theme shown in the table. `glacier` and
 `amber` turn blur off, which is the cheapest option on low-end GPUs;
 `violet` moves the bar to the bottom and is the heaviest.
