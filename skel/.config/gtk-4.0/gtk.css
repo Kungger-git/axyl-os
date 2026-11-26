@@ -15,8 +15,8 @@
 @define-color insensitive_base_color #0a0a0a;
 @define-color insensitive_fg_color  #808080;
 @define-color insensitive_text_color #808080;
-@define-color borders               #484848;
-@define-color unfocused_borders     #484848;
+@define-color borders               #2a2a2a;
+@define-color unfocused_borders     #2a2a2a;
 @define-color content_view_bg       #0a0a0a;
 @define-color view_bg_color         #0a0a0a;
 @define-color view_fg_color         #eeeeee;

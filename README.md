@@ -225,8 +225,33 @@ the live build.
   "Network wait-online" boot toggle and a "Hyprland effects" switch that turns
   blur, shadows, and animations off at runtime.
 - **Theme engine**: `~/.config/theme/render.py` renders Hyprland, Waybar,
-  Mako/Rofi, Foot/Kitty, Starship, Neovim, Cava, KDE, Qt6ct, and GTK. Change
-  `~/.config/theme/palette.json` and rerun it.
+  Mako/Rofi, Foot/Kitty, Starship, Neovim, Cava, KDE, Qt6ct, and GTK. Colours
+  and layout both come from `~/.config/theme/palette.json`; the four shipped
+  designs live in `~/.config/theme/designs.json`.
+
+### Designs
+
+Four complete looks ship in the image. Each one sets the palette **and** the
+layout — bar style and position, rounding, gaps, borders, blur and shadows —
+so switching changes the whole feel of the desktop, not just the colours.
+
+| Design | Bar | Rounding | Blur | Matches |
+|---|---|---|---|---|
+| `ember` | floating islands, top | 12 px | on | opencode (default) |
+| `glacier` | flat full-width, top | 4 px | off | nord |
+| `amber` | chunky slab, top | 8 px | off | gruvbox |
+| `violet` | glass dock, bottom | 14 px | on | synthwave84 |
+
+```bash
+~/.config/theme/themes.py list             # designs first, then opencode themes
+~/.config/theme/themes.py set glacier      # palette + layout
+~/.config/theme/themes.py set tokyonight   # colours only, layout kept
+~/.config/theme/themes.py pick             # rofi picker (SUPER + SHIFT + T)
+```
+
+Designs also pick the opencode TUI theme shown in the table. `glacier` and
+`amber` turn blur off, which is the cheapest option on low-end GPUs;
+`violet` moves the bar to the bottom and is the heaviest.
 - **Lock/idle**: hyprlock + hypridle
 - **Screenshots**: `~/.local/bin/screenshot` (grim + slurp, saves to
   `~/Pictures/Screenshots` and copies to the clipboard)
@@ -236,7 +261,8 @@ the live build.
 
 The image targets low-spec hardware: zram instead of disk swap, TLP power
 management, Early OOM, the `schedutil` governor, `noatime`, periodic TRIM,
-one-pass Hyprland blur, and Waybar polling no faster than 5 s. Live menus boot
+per-design Hyprland blur (off in `glacier` and `amber`), and Waybar polling no
+faster than 5 s. Live menus boot
 automatically after 3 s (Arch) or 5 s (Artix), and installed systems use a 2 s
 GRUB menu. `~/.local/bin/hypr-effects performance` (or the Services menu) turns
 blur, shadows, and animations off for the current session; `hyprctl reload`

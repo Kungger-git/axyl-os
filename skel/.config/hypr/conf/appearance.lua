@@ -1,9 +1,11 @@
 -- Look and feel: general, decoration, animations, layouts.
--- Colors come from conf/palette.lua, which is generated from
--- ~/.config/theme/palette.json by ~/.config/theme/render.py -- change it there.
+-- Colors come from conf/palette.lua and the layout (gaps, rounding, blur) from
+-- conf/design.lua; both are generated from ~/.config/theme/palette.json by
+-- ~/.config/theme/render.py -- change it there.
 -- https://wiki.hypr.land/Configuring/Basics/Variables/
 
 local p = require("conf.palette")
+local d = require("conf.design")
 
 -- Hyprland colour type: "rgba(RRGGBBAA)" / "rgb(RRGGBB)".
 local function rgba(hex, alpha)
@@ -12,9 +14,9 @@ end
 
 hl.config({
   general = {
-    gaps_in          = 6,
-    gaps_out         = 8,
-    border_size      = 2,
+    gaps_in          = d.gaps_in,
+    gaps_out         = d.gaps_out,
+    border_size      = d.border_size,
     resize_on_border = false,
     allow_tearing    = false,
     layout           = "dwindle",
@@ -26,26 +28,26 @@ hl.config({
   },
 
   decoration = {
-    rounding         = 8,
+    rounding         = d.rounding,
     rounding_power   = 2,
     active_opacity   = 1.0,
     inactive_opacity = 1.0,
 
     shadow = {
-      enabled      = true,
-      range        = 6,
-      render_power = 2,
+      enabled      = d.shadow,
+      range        = d.shadow_range,
+      render_power = d.shadow_power,
       color        = rgba("000000", "b3"),
     },
 
-    -- One blur pass is enough for the two translucent surfaces we have
-    -- (Waybar and rofi); kitty is opaque, so this mostly saves GPU time.
+    -- Blur is a per-design choice: the flat and chunky designs turn it off
+    -- entirely to save GPU time.
     blur = {
-      enabled        = true,
-      size           = 4,
-      passes         = 1,
+      enabled        = d.blur,
+      size           = d.blur_size,
+      passes         = d.blur_passes,
       ignore_opacity = false,
-      vibrancy       = 0.10,
+      vibrancy       = d.blur_vibrancy,
     },
   },
 

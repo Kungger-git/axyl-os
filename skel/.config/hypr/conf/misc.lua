@@ -1,9 +1,11 @@
 -- https://wiki.hypr.land/Configuring/Basics/Variables/#misc
+local p = require("conf.palette")
+
 hl.config({
   misc = {
     disable_hyprland_logo   = true,               -- no Hyprland logo on the wallpaper
     force_default_wallpaper = 0,                  -- no mascot wallpaper
-    background_color        = "rgba(0a0a0aff)",   -- solid opencode background
+    background_color        = "rgba(" .. p.bg .. "ff)",  -- solid design background
   },
 })
 

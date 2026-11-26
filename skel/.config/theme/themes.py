@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Switch the whole desktop to one of opencode's built-in colour themes.
+"""Switch the whole desktop to an Axyl design or an opencode colour theme.
 
-The theme files are vendored from the opencode release that is installed
-(`opencode --version`) into ~/.config/theme/opencode-themes/.  The dark
-variant of the chosen theme is mapped onto the palette schema used by
-~/.config/theme/render.py, which then regenerates every app:
+Designs are defined in ~/.config/theme/designs.json and set the palette *and*
+the layout (bar style/position, rounding, gaps, blur). opencode themes are
+vendored into ~/.config/theme/opencode-themes/ by `sync`; their dark variant is
+mapped onto the palette schema and keeps the current layout. Either way
+~/.config/theme/render.py regenerates every app:
 
-    Hyprland + hyprlock   ~/.config/hypr/conf/palette.lua, hyprlock.conf
-    waybar                ~/.config/waybar/style.css
+    Hyprland + hyprlock   ~/.config/hypr/conf/{palette,design}.lua, hyprlock.conf
+    waybar                ~/.config/waybar/{config,style.css}
     kitty                 ~/.config/kitty/colors.conf
     rofi / starship / nvim / cava
     KDE / Qt / GTK        kdeglobals, color-schemes/opencode.colors,
@@ -17,9 +18,9 @@ The opencode TUI itself is switched through ~/.config/opencode/cli.json
 (`theme.name` + `theme.mode = "dark"`) followed by `opencode reload`.
 
 Usage
-    themes.py list              list selectable themes (current marked)
-    themes.py current           print the active theme name
-    themes.py set <name>        switch to <name>
+    themes.py list              list designs and themes (current marked)
+    themes.py current           print the active design/theme name
+    themes.py set <name>        switch to <name> (design or opencode theme)
     themes.py pick              rofi picker (used by SUPER+SHIFT+T)
     themes.py sync              re-vendor themes for the installed opencode
 
@@ -28,6 +29,10 @@ Notes
       apps point at it through kdeglobals [UiSettings] ColorScheme.
     * Only dark variants are used; the whole desktop is dark-first.
     * "lucent-orng" is excluded: every background in it is transparent.
+    * Entries in ~/.config/theme/designs.json are Axyl designs: they set the
+      palette *and* the layout (bar style/position, rounding, gaps, blur), and
+      map to an opencode theme for the TUI. Switching to an opencode theme
+      keeps the current layout.
 """
 
 from __future__ import annotations
@@ -44,6 +49,7 @@ CONFIG = Path.home() / ".config"
 THEME_DIR = CONFIG / "theme"
 THEMES = THEME_DIR / "opencode-themes"
 PALETTE = THEME_DIR / "palette.json"
+DESIGNS = THEME_DIR / "designs.json"
 PREV = THEME_DIR / "palette.prev.json"
 RENDER = THEME_DIR / "render.py"
 CLI_JSON = CONFIG / "opencode" / "cli.json"
@@ -113,6 +119,17 @@ def contrast(a: str, b: str) -> float:
 
 
 # ------------------------------------------------------------------ themes ---
+def designs() -> dict:
+    try:
+        return json.loads(DESIGNS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def design_names() -> list[str]:
+    return [k for k in designs() if not k.startswith("_")]
+
+
 def theme_names() -> list[str]:
     return sorted(
         p.stem for p in THEMES.glob("*.json") if p.is_file() and p.stem not in SKIP
@@ -207,6 +224,13 @@ def build_palette(name: str) -> dict:
 
 
 # ------------------------------------------------------------------ actions ---
+def existing_layout() -> dict:
+    try:
+        return json.loads(PALETTE.read_text()).get("layout") or {}
+    except (OSError, ValueError):
+        return {}
+
+
 def current_name() -> str:
     try:
         name = json.loads(PALETTE.read_text()).get("name")
@@ -233,6 +257,7 @@ def set_tui_theme(name: str) -> None:
     except (OSError, ValueError):
         config = {"$schema": "https://opencode.ai/v2/cli.json"}
     config["theme"] = {"name": name, "mode": "dark"}
+    CLI_JSON.parent.mkdir(parents=True, exist_ok=True)
     CLI_JSON.write_text(json.dumps(config, indent=2) + "\n")
     if shutil.which("opencode"):
         try:
@@ -253,15 +278,16 @@ def notify(message: str) -> None:
 
 
 def cmd_list() -> int:
-    names = theme_names()
-    if not names:
-        print("no themes vendored -- run: %s sync" % sys.argv[0])
+    rows = [(n, "design") for n in design_names()]
+    rows += [(n, "theme") for n in theme_names()]
+    if not rows:
+        print("no designs or themes -- run: %s sync" % sys.argv[0])
         return 1
     current = current_name()
-    width = max(len(n) for n in names)
-    for name in names:
+    width = max(len(n) for n, _ in rows)
+    for name, kind in rows:
         mark = "\u25cf" if name == current else " "
-        print(f"{mark} {name:<{width}}")
+        print(f"{mark} {name:<{width}}  {kind}")
     return 0
 
 
@@ -271,12 +297,28 @@ def cmd_current() -> int:
 
 
 def cmd_set(name: str) -> int:
-    if name not in theme_names():
-        print(f"unknown theme: {name}", file=sys.stderr)
+    presets = designs()
+    if name in presets:
+        preset = presets[name]
+        palette = {
+            "_comment": (
+                f"Axyl design '{name}' -- defined in ~/.config/theme/designs.json, "
+                "rendered by ~/.config/theme/render.py"
+            ),
+            "name": name,
+        }
+        palette.update(preset["palette"])
+        palette["layout"] = preset.get("layout", {})
+        tui = preset.get("tui", "opencode")
+    elif name in theme_names():
+        palette = build_palette(name)
+        palette["layout"] = existing_layout()
+        tui = name
+    else:
+        print(f"unknown design or theme: {name}", file=sys.stderr)
         print("run: %s list" % sys.argv[0], file=sys.stderr)
         return 2
 
-    palette = build_palette(name)
     ratio = contrast(palette["fg"], palette["bg"])
     if ratio < 4.5:
         print(
@@ -295,16 +337,16 @@ def cmd_set(name: str) -> int:
             PALETTE.write_text(old)
         raise SystemExit("render.py failed -- previous palette restored")
 
-    set_tui_theme(name)
+    set_tui_theme(tui)
     notify(f"Theme: {name}")
     print(f"theme -> {name}")
     return 0
 
 
 def cmd_pick() -> int:
-    names = theme_names()
+    names = design_names() + theme_names()
     if not names:
-        notify("No themes vendored -- run themes.py sync")
+        notify("No designs or themes -- run themes.py sync")
         return 1
     if not shutil.which("rofi"):
         print("rofi not found", file=sys.stderr)
