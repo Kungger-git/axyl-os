@@ -53,6 +53,7 @@ THEMES = THEME_DIR / "opencode-themes"
 PALETTE = THEME_DIR / "palette.json"
 DESIGNS = THEME_DIR / "designs.json"
 PREV = THEME_DIR / "palette.prev.json"
+PREVIEW_BASE = THEME_DIR / ".preview-base.json"
 RENDER = THEME_DIR / "render.py"
 CLI_JSON = CONFIG / "opencode" / "cli.json"
 ROFI_STYLE = CONFIG / "rofi" / "style.rasi"
@@ -233,6 +234,14 @@ def existing_layout() -> dict:
         return {}
 
 
+def picker_layout() -> dict:
+    """Layout the picker started from, not the last previewed design's."""
+    try:
+        return json.loads(PREVIEW_BASE.read_text()).get("layout") or {}
+    except (OSError, ValueError):
+        return existing_layout()
+
+
 def current_name() -> str:
     try:
         name = json.loads(PALETTE.read_text()).get("name")
@@ -301,7 +310,7 @@ def cmd_current() -> int:
     return 0
 
 
-def palette_for(name: str):
+def palette_for(name: str, layout: dict | None = None):
     """Palette and opencode theme for <name>, or (None, None) if unknown."""
     presets = designs()
     if name in presets:
@@ -318,7 +327,7 @@ def palette_for(name: str):
         return palette, preset.get("tui", "opencode")
     if name in theme_names():
         palette = build_palette(name)
-        palette["layout"] = existing_layout()
+        palette["layout"] = existing_layout() if layout is None else layout
         return palette, name
     return None, None
 
@@ -332,7 +341,7 @@ def cmd_preview(text: str) -> int:
     name = clean_entry(text)
     if not name or name == current_name():
         return 0
-    palette, _ = palette_for(name)
+    palette, _ = palette_for(name, picker_layout())
     if palette is None:
         return 0
     PALETTE.write_text(json.dumps(palette, indent=2) + "\n")
@@ -384,6 +393,8 @@ def cmd_pick() -> int:
         return 1
 
     original = PALETTE.read_bytes() if PALETTE.exists() else None
+    if original is not None:
+        PREVIEW_BASE.write_bytes(original)
     current = current_name()
     lines = [("\u25cf " if n == current else "  ") + n for n in names]
 
@@ -398,6 +409,7 @@ def cmd_pick() -> int:
     result = subprocess.run(
         command, input="\n".join(lines) + "\n", capture_output=True, text=True
     )
+    PREVIEW_BASE.unlink(missing_ok=True)
     if original is not None:
         PALETTE.write_bytes(original)
     if result.returncode != 0:
