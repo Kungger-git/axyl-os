@@ -98,7 +98,9 @@ if ! compgen -G "$PKG_DIR/brave-bin-*.pkg.tar.zst" >/dev/null; then
     info "Building vendored brave-bin package (first run only)..."
     echo ""
     docker build -t axyl-brave-builder:latest - < "$SCRIPT_DIR/docker/Dockerfile.brave"
-    docker run --rm -v "$PKG_DIR:/out" axyl-brave-builder:latest \
+    # Dockerfile.brave ends with USER builder (uid 1000); the host user may have
+    # a different uid, so copy as root to write into the bind-mounted directory.
+    docker run --rm --user 0:0 -v "$PKG_DIR:/out" axyl-brave-builder:latest \
         sh -c 'cp /home/builder/out/brave-bin-*.pkg.tar.zst /out/'
     ok "Brave package built"
     echo ""

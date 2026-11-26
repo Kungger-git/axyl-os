@@ -700,6 +700,7 @@ Live timezone `Asia/Manila`, hostname `axyl`, clock synced by systemd-timesyncd 
 | `losetup: cannot find an unused loop device` in CI | runner has no free loop device | Workflow runs `modprobe loop` and creates `/dev/loop8..15` when needed |
 | ISO artifact/release upload fails near 2 GiB | GitHub caps artifact and release files at 2 GiB | Keep the `split -b 1900M` step and upload the parts |
 | `archlinux:latest` pull fails with `toomanyrequests` | anonymous Docker Hub rate limit on shared runner IPs | Set `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets |
+| CI fails with `cp: cannot create regular file '/out/brave-bin-...': Permission denied` | `Dockerfile.brave` ends with `USER builder` (uid 1000), which cannot write a bind mount owned by the runner's uid | `build.sh` copies the package with `docker run --user 0:0` |
 | Tagged ISO still uses today's date | mkarchiso reads `iso_version` from `profiledef.sh` | `build.sh` rewrites it from `AXYL_VERSION` in the temp profile |
 
 ### Artix build errors
