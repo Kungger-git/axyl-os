@@ -206,7 +206,7 @@ the live build.
 ## Desktop
 
 - **Compositor/session**: Hyprland (Lua config), Wayland with XWayland fallback
-- **Bar**: Waybar
+- **Bar**: Waybar (the `A` on the left opens and closes the launcher)
 - **Notifications**: Mako
 - **Launcher**: Rofi
 - **Terminal**: Foot (Kitty stays installed as a fallback)
