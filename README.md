@@ -39,6 +39,45 @@ access. Built ISOs, `SHA256SUMS`, and a small manifest are written under
 The builder images are rebuilt on each run. `mkarchiso` runs privileged inside
 Docker to create the loop-mounted ISO.
 
+### CI (GitHub Actions)
+
+`.github/workflows/build-isos.yml` builds both variants in parallel on
+GitHub-hosted runners. It runs on:
+
+- pushes to `master` that touch the build inputs, plus `v*` tags
+- pull requests that touch the build inputs
+- manual dispatch (`both`, `arch`, or `artix`)
+- a weekly schedule (Mondays 03:00 UTC)
+
+Each job frees runner disk space, ensures loop devices exist, and caches the
+vendored `brave-bin` package (refreshed monthly or when
+`docker/Dockerfile.brave` changes). The ISOs are 2.5–2.8 GB, so they are split
+into <1900 MiB parts before upload to stay under the 2 GiB per-file limit for
+artifacts and release assets.
+
+Every run uploads `axyl-iso-arch` / `axyl-iso-artix` artifacts (14 days) with
+the parts, `.sha256`, manifest, and `reassemble-iso.sh`. A `v*` tag also
+publishes a GitHub Release with the same files. Reassemble a downloaded ISO:
+
+```bash
+./reassemble-iso.sh axyl-arch-2026.11.26-x86_64.iso
+```
+
+Tagged builds use the tag (without the leading `v`) as the ISO version;
+branch and local builds keep the current date. Standard runners have no
+`/dev/kvm`, so CI verifies the checksum, El Torito boot record, initramfs, and
+EFI loader but does not boot the desktop.
+
+Optional repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
+authenticate the base-image pulls and avoid anonymous Docker Hub rate limits.
+
+Cut a release by pushing a `v*` tag:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
 ### Flash to USB
 
 ```bash
@@ -355,6 +394,8 @@ archiso/        Arch profile: packages, profiledef, airootfs
 artixiso/       Artix overlay/profile
 skel/           shared /etc/skel (desktop, shell, nvim, theme)
 docker/         builder Dockerfiles (arch, artix, brave)
+.github/        CI workflow (builds both ISOs, releases on v* tags)
+tools/          QEMU helper and ISO reassembly script
 build.sh        per-variant ISO build, checksums, manifest
 flash.sh        USB-only flasher with checksum verification
 ```

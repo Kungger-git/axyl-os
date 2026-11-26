@@ -125,6 +125,8 @@ flash.sh                              ← USB-only ISO writer with checksum veri
 setup.sh                              ← host prep (Docker, optional QEMU)
 test.sh                               ← QEMU harness (BIOS/UEFI, disk, QMP, headless)
 tools/qmp.py                          ← QMP helper copied to ~/axyl-qemu for headless tests
+tools/reassemble-iso.sh               ← joins split CI ISO parts and verifies the .sha256
+.github/workflows/build-isos.yml      ← CI: builds both variants, releases on v* tags
 ```
 
 ---
@@ -141,6 +143,18 @@ tools/qmp.py                          ← QMP helper copied to ~/axyl-qemu for h
 6. Write `<iso>.sha256` and `axyl-<variant>-manifest.txt` (`variant`, `version`, `iso`, `sha256`, `built_utc`, `profile`).
 
 Output paths: `axyl-out/arch/axyl-arch-<Y.m.d>-x86_64.iso`, `axyl-out/artix/axyl-artix-<Y.m.d>-x86_64.iso`.
+
+`AXYL_VERSION` overrides the version (CI passes the tag without its leading `v`). `build.sh` rewrites `iso_version` in the temporary profile because mkarchiso takes the filename version from `profiledef.sh`, not from the script's `VERSION`.
+
+### CI (GitHub Actions)
+
+`.github/workflows/build-isos.yml` builds both variants in parallel on `ubuntu-latest` (privileged Docker, loop devices). Triggers: pushes/PRs touching build inputs, `v*` tags, manual dispatch (`both`/`arch`/`artix`), and a weekly schedule.
+
+- Frees runner disk space and creates `/dev/loop8..15` when `losetup -f` finds none.
+- Caches `axyl-build/pkgs` under `brave-bin-<YYYY-MM>-<Dockerfile.brave hash>`.
+- Validates each ISO: manifest, `sha256sum -c`, El Torito record, `/arch/boot/x86_64/initramfs-linux.img`, `/EFI/BOOT/BOOTX64.EFI`.
+- Splits the ISO into 1900 MiB parts (`split -d -a 3`) and uploads `axyl-iso-<variant>`; `v*` tags publish a GitHub Release via `gh`.
+- Hosted runners have no `/dev/kvm`, so CI does not boot the desktop.
 
 ### profiledef.sh — current values
 
@@ -683,6 +697,10 @@ Live timezone `Asia/Manila`, hostname `axyl`, clock synced by systemd-timesyncd 
 | `pacman -U brave-bin` fails with `CheckSpace` | no mount table for `/` inside the mkarchiso chroot | Both `customize_airootfs.sh` and `axyl-install` retry with only `CheckSpace` commented out |
 | Build picks up stale config | builder image is always removed and rebuilt; profile is a fresh `mktemp -d` | If something still looks stale, check `axyl-build/pkgs/` for an old `brave-bin` package |
 | ISO name/label mismatch | `iso_label` uses `%y.%m`; `install_dir` is `arch` on both variants | Do not change `install_dir` without updating syslinux, GRUB, systemd-boot, and `profiledef.sh` |
+| `losetup: cannot find an unused loop device` in CI | runner has no free loop device | Workflow runs `modprobe loop` and creates `/dev/loop8..15` when needed |
+| ISO artifact/release upload fails near 2 GiB | GitHub caps artifact and release files at 2 GiB | Keep the `split -b 1900M` step and upload the parts |
+| `archlinux:latest` pull fails with `toomanyrequests` | anonymous Docker Hub rate limit on shared runner IPs | Set `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` repository secrets |
+| Tagged ISO still uses today's date | mkarchiso reads `iso_version` from `profiledef.sh` | `build.sh` rewrites it from `AXYL_VERSION` in the temp profile |
 
 ### Artix build errors
 

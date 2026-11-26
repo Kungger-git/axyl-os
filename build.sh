@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_ROOT="$SCRIPT_DIR/axyl-out"
 ISO_DIR="$OUT_ROOT/$VARIANT"
 PKG_DIR="$SCRIPT_DIR/axyl-build/pkgs"
-VERSION="$(date +%Y.%m.%d)"
+VERSION="${AXYL_VERSION:-$(date +%Y.%m.%d)}"
 
 # Colours
 ACCENT='\e[38;2;217;119;87m'
@@ -43,6 +43,9 @@ Test the result with: ./test.sh <variant>
 EOF
     exit 0
 fi
+
+[[ "$VERSION" =~ ^[0-9A-Za-z._+-]+$ ]] \
+    || err "Invalid version '$VERSION' (allowed: letters, digits, . _ + -)"
 
 info "Axyl Linux -- build script (variant: $VARIANT, version: $VERSION)"
 echo ""
@@ -79,6 +82,10 @@ case "$VARIANT" in
         err "Unknown variant '$VARIANT'. Usage: $0 [arch|artix]"
         ;;
 esac
+
+# mkarchiso names the ISO from iso_version in the profile, not from $VERSION,
+# so CI can give tagged builds the tag's version instead of today's date.
+sed -i "s/^iso_version=.*/iso_version=\"$VERSION\"/" "$TMP_PROFILE/profiledef.sh"
 
 # Shared desktop/user configuration.
 cp -rT "$SCRIPT_DIR/skel" "$TMP_PROFILE/airootfs/etc/skel"
