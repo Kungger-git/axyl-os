@@ -126,6 +126,7 @@ setup.sh                              ← host prep (Docker, optional QEMU)
 test.sh                               ← QEMU harness (BIOS/UEFI, disk, QMP, headless)
 tools/qmp.py                          ← QMP helper copied to ~/axyl-qemu for headless tests
 tools/reassemble-iso.sh               ← joins split CI ISO parts and verifies the .sha256
+docs/screenshots/                     ← README screenshots captured from the ISO in QEMU
 .github/workflows/build-isos.yml      ← CI: builds both variants, releases on v* tags
 ```
 
@@ -379,6 +380,8 @@ cannot drag the bar down for the themes after it.
 
 A design sets palette **and** layout together. An opencode theme changes colours only and keeps the current layout. `set` keeps the previous palette in `palette.prev.json`, warns below 4.5:1 contrast, restores the old palette if rendering fails, and writes `theme = { name, mode = "dark" }` to `~/.config/opencode/cli.json` before calling `opencode reload`. `lucent-orng` is excluded because all its backgrounds are transparent.
 
+The README gallery in `docs/screenshots/` is captured from the built ISO, not rendered from `designs.json`: the live system is booted headless in QEMU at 1600×900 and driven over QMP (`tools/qmp.py`). Re-shoot the affected images whenever a design, layout value, or menu changes — a stale screenshot is worse than none.
+
 ### Desktop components
 
 | Role | Component | Notes |
@@ -530,7 +533,7 @@ Volume, brightness and media binds use `locked = true` so they keep working on t
 
 ### Gaming, firmware, microphones
 
-- `axyl-game` wraps a command with `gamemoderun` and `MANGOHUD=1`; `--gamescope` runs it in a nested gamescope window sized by `AXYL_GAME_WIDTH/HEIGHT/REFRESH` (default 1920x1080@60). It ships **once** in `archiso/airootfs/usr/local/bin/` and is inherited by the Artix overlay — do not duplicate it there.
+- `axyl-game` wraps a command with `gamemoderun` and `mangohud`; the wrapper (not just `MANGOHUD=1`) is required for OpenGL titles, since the env var alone only enables the Vulkan implicit layer. `--gamescope` runs it in a nested gamescope window sized by `AXYL_GAME_WIDTH/HEIGHT/REFRESH` (default 1920x1080@60). It ships **once** in `archiso/airootfs/usr/local/bin/` and is inherited by the Artix overlay — do not duplicate it there.
 - `skel/.config/MangoHud/MangoHud.conf` and `skel/.config/pipewire/pipewire.conf.d/99-axyl-echo-cancel.conf` arrive through `/etc/skel`; no extra package is needed for echo cancellation (`pipewire-audio` pulls in `webrtc-audio-processing`).
 - Early OOM: `earlyoom.service` on Arch, `earlyoom` runit service on Artix. `fwupd-refresh.timer` is Arch-only; fwupd on Artix is D-Bus activated, so firmware metadata refresh is manual.
 - No 32-bit/multilib gaming stack is shipped; `archiso/pacman.conf` still lists `[multilib]` for the build host only.

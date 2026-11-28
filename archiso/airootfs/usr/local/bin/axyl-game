@@ -56,6 +56,12 @@ if ((gamemode)) && command -v gamemoderun >/dev/null 2>&1; then
     cmd=(gamemoderun "${cmd[@]}")
 fi
 
+# MANGOHUD=1 alone only enables the Vulkan implicit layer; OpenGL titles need the
+# wrapper so libMangoHud_opengl.so is preloaded.
+if ((mangohud)) && command -v mangohud >/dev/null 2>&1; then
+    cmd=(mangohud "${cmd[@]}")
+fi
+
 if ((gamescope)); then
     if ! command -v gamescope >/dev/null 2>&1; then
         echo "axyl-game: gamescope is not installed" >&2

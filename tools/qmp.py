@@ -7,6 +7,7 @@ socket path. Examples:
     python3 ~/axyl-qemu/qmp.py ~/axyl-qemu/qmp-arch-bios.sock status
     python3 ~/axyl-qemu/qmp.py ~/axyl-qemu/qmp-arch-bios.sock shot desktop.ppm
     python3 ~/axyl-qemu/qmp.py ~/axyl-qemu/qmp-arch-bios.sock key meta_l-ret
+    python3 ~/axyl-qemu/qmp.py ~/axyl-qemu/qmp-arch-bios.sock type "themes.py set glacier"
     python3 ~/axyl-qemu/qmp.py ~/axyl-qemu/qmp-arch-bios.sock quit
 
 Screendumps are written by QEMU, so paths must be visible to the QEMU process.
@@ -23,6 +24,31 @@ from pathlib import Path
 
 class QMPError(RuntimeError):
     pass
+
+
+# HMP sendkey names for characters that are not simply their own key name.
+CHAR_KEYS = {
+    " ": "spc", "-": "minus", "_": "shift-minus", "/": "slash", ".": "dot",
+    ",": "comma", ":": "shift-semicolon", ";": "semicolon", "=": "equal",
+    "+": "shift-equal", "'": "apostrophe", '"': "shift-apostrophe",
+    "(": "shift-9", ")": "shift-0", "|": "shift-backslash", "\\": "backslash",
+    "*": "shift-8", "&": "shift-7", "$": "shift-4", "#": "shift-3",
+    "@": "shift-2", "!": "shift-1", "?": "shift-slash", "~": "shift-grave",
+    "%": "shift-5", "^": "shift-6",
+    "`": "grave", "<": "shift-comma", ">": "shift-dot",
+    "{": "shift-bracket_left", "}": "shift-bracket_right",
+    "[": "bracket_left", "]": "bracket_right",
+}
+
+
+def key_combo(char: str) -> str:
+    if char in CHAR_KEYS:
+        return CHAR_KEYS[char]
+    if char.isalpha():
+        return char.lower() if char.islower() else f"shift-{char.lower()}"
+    if char.isdigit():
+        return char
+    raise ValueError(f"cannot type {char!r}")
 
 
 class QMP:
@@ -76,7 +102,7 @@ def main() -> int:
         "command",
         nargs="?",
         default="status",
-        choices=["status", "shot", "key", "quit"],
+        choices=["status", "shot", "key", "type", "quit"],
     )
     parser.add_argument("argument", nargs="?", help="screenshot path or key combo")
     parser.add_argument(
@@ -101,6 +127,14 @@ def main() -> int:
             if not args.argument:
                 parser.error("key requires a combo, for example meta_l-ret")
             qmp.hmp(f"sendkey {args.argument}")
+        elif args.command == "type":
+            if not args.argument:
+                parser.error("type requires text to type")
+            if args.delay:
+                time.sleep(args.delay)
+            for char in args.argument:
+                qmp.hmp(f"sendkey {key_combo(char)}")
+                time.sleep(0.03)
         elif args.command == "quit":
             qmp.execute("quit")
         qmp.close()

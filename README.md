@@ -21,6 +21,51 @@ Both build inside Docker; no native Arch or Artix host is required.
 
 ---
 
+## Screenshots
+
+Captured from the built ISO running in QEMU (1600×900 framebuffer, Hyprland on
+software GL), not mock-ups. The session was driven over QMP with
+`tools/qmp.py`; the only edits are crops and the downscale to README width.
+
+### Designs
+
+![The four Axyl designs switching](docs/screenshots/designs.gif)
+
+| `ember` — floating islands, blur, opencode | `glacier` — flat bar, no blur, nord |
+|---|---|
+| ![ember](docs/screenshots/design-ember.png) | ![glacier](docs/screenshots/design-glacier.png) |
+| `amber` — chunky slab, no blur, gruvbox | `violet` — bottom dock, blur, synthwave84 |
+| ![amber](docs/screenshots/design-amber.png) | ![violet](docs/screenshots/design-violet.png) |
+
+Switch with `Super + Shift + T` (the picker previews on highlight) or
+`~/.config/theme/themes.py set <name>`.
+
+### Boot and install
+
+| Live UEFI boot menu (systemd-boot) | `axyl-install` |
+|---|---|
+| ![Boot menu](docs/screenshots/boot-menu.png) | ![Installer](docs/screenshots/installer.png) |
+
+![Installer running](docs/screenshots/installer.gif)
+
+### Desktop menus
+
+| Theme picker (`Super + Shift + T`) | App launcher (`Super + D`) |
+|---|---|
+| ![Theme picker](docs/screenshots/theme-picker.png) | ![App launcher](docs/screenshots/app-launcher.png) |
+| Power menu (`Super + Shift + Q`) | Services menu (`Super + Shift + M`) |
+| ![Power menu](docs/screenshots/power-menu.png) | ![Services menu](docs/screenshots/services.png) |
+
+### Gaming
+
+`axyl-game` runs a title under GameMode with MangoHud (or inside a nested
+gamescope window with `--gamescope`). SuperTux here runs on the VM's software
+renderer, so the frame rate is far below what real hardware produces:
+
+![MangoHud overlay](docs/screenshots/gaming-mangohud.png)
+
+---
+
 ## Build
 
 ```bash
@@ -314,7 +359,8 @@ restores the configured look.
 ### Gaming, firmware, and microphones
 
 `axyl-game` wraps a game with GameMode and MangoHud in the current Hyprland
-session:
+session. MangoHud is applied through the `mangohud` wrapper, so OpenGL titles
+get the overlay too (`MANGOHUD=1` alone only covers Vulkan):
 
 ```bash
 axyl-game /path/to/game
@@ -394,8 +440,9 @@ archiso/        Arch profile: packages, profiledef, airootfs
 artixiso/       Artix overlay/profile
 skel/           shared /etc/skel (desktop, shell, nvim, theme)
 docker/         builder Dockerfiles (arch, artix, brave)
+docs/           README screenshots (captured from the ISO in QEMU)
 .github/        CI workflow (builds both ISOs, releases on v* tags)
-tools/          QEMU helper and ISO reassembly script
+tools/          QEMU helper and ISO reassembly
 build.sh        per-variant ISO build, checksums, manifest
 flash.sh        USB-only flasher with checksum verification
 ```
